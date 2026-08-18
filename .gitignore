@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+dist/
+coverage/
+*.log
+.env
+.env.local
+apps/mobile/ios/build/
+apps/mobile/ios/Pods/
+apps/mobile/ios/.xcode.env.local
+apps/mobile/android/
+artifacts/
