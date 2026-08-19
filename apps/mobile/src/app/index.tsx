@@ -94,6 +94,7 @@ export default function ChatScreen() {
   const actions = useContactFlow((state) => state.actions);
   const insights = useContactFlow((state) => state.insights);
   const memories = useContactFlow((state) => state.memories);
+  const chatSessions = useContactFlow((state) => state.chatSessions);
   const setActions = useContactFlow((state) => state.setActions);
   const setInsights = useContactFlow((state) => state.setInsights);
   const updateActionPayload = useContactFlow(
@@ -373,6 +374,13 @@ export default function ChatScreen() {
     }
   };
 
+  const defaultSessionTitle = language === "zh" ? "新对话" : "New conversation";
+  const activeSession = activeSessionId
+    ? chatSessions.find((session) => session.id === activeSessionId)
+    : undefined;
+  const currentSessionTitle =
+    activeSession?.title ?? defaultSessionTitle;
+
   return (
     <View style={styles.root}>
       <SafeAreaView edges={["top"]} style={styles.safeArea}>
@@ -381,7 +389,11 @@ export default function ChatScreen() {
           keyboardVerticalOffset={8}
           style={styles.keyboardView}
         >
-          <ChatHeader language={language} onOpenChats={openDrawer} />
+          <ChatHeader
+            language={language}
+            onOpenChats={openDrawer}
+            title={currentSessionTitle}
+          />
 
           <ScrollView
             ref={scrollRef}
@@ -599,9 +611,11 @@ export default function ChatScreen() {
 function ChatHeader({
   language,
   onOpenChats,
+  title,
 }: {
   language: AppLanguage;
   onOpenChats: () => void;
+  title: string;
 }) {
   const copy = chatCopy[language];
 
@@ -626,8 +640,8 @@ function ChatHeader({
         </Pressable>
       </View>
       <View style={styles.headerCopy}>
-        <Text numberOfLines={1} style={styles.headerTitle}>
-          ContactFlow Agent
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.headerTitle}>
+          {title}
         </Text>
       </View>
       <View style={[styles.headerSide, styles.headerSideRight]} />
