@@ -353,24 +353,12 @@ export function ChatHistoryDrawer({
                         onPress={() => closeThen(() => onSelect(session))}
                         style={({ pressed }) => pressed && styles.pressed}
                       >
-                        <View
-                          style={[
-                            styles.session,
-                            active && styles.sessionActive,
-                          ]}
-                        >
                           <View
                             style={[
-                              styles.sessionIcon,
-                              active && styles.sessionIconActive,
+                              styles.session,
+                              active && styles.sessionActive,
                             ]}
                           >
-                            <MessageCircleMore
-                              color={active ? palette.paper : palette.mist}
-                              size={iconSize.small}
-                              strokeWidth={1.6}
-                            />
-                          </View>
                           <View style={styles.sessionCopy}>
                             <Text numberOfLines={1} style={styles.sessionTitle}>
                               {session.title}
@@ -806,20 +794,11 @@ const styles = StyleSheet.create({
     minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md,
+    gap: spacing.sm,
     paddingHorizontal: spacing.sm,
     borderRadius: radius.sm,
   },
   sessionActive: { backgroundColor: palette.graphite },
-  sessionIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.graphite,
-  },
-  sessionIconActive: { backgroundColor: palette.ink },
   sessionCopy: { flex: 1, minWidth: 0 },
   sessionTitle: {
     color: palette.paper,
