@@ -44,6 +44,13 @@ export default function RootLayout() {
         <AppCanvasShell>
           <Stack screenOptions={{ animation: "none", headerShown: false }}>
             <Stack.Screen name="index" />
+            <Stack.Screen
+              name="memory"
+              options={{
+                animation: "slide_from_right",
+                animationDuration: motion.standard,
+              }}
+            />
             <Stack.Screen name="profile" />
             <Stack.Screen name="settings" />
             <Stack.Screen

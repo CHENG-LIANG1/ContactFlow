@@ -1,4 +1,5 @@
 import {
+  BrainCircuit,
   MessageCircleMore,
   Pencil,
   Pin,
@@ -48,6 +49,7 @@ type ChatHistoryDrawerProps = {
   onClose: () => void;
   onCloseStart?: () => void;
   onDelete: (id: string) => void;
+  onMemory: () => void;
   onNewChat: () => void;
   onPin: (id: string) => void;
   onProfile: () => void;
@@ -64,6 +66,7 @@ export function ChatHistoryDrawer({
   onClose,
   onCloseStart,
   onDelete,
+  onMemory,
   onNewChat,
   onPin,
   onProfile,
@@ -88,6 +91,16 @@ export function ChatHistoryDrawer({
   const reduceMotion = useReducedMotion();
   const language = useContactFlow((state) => state.language);
   const profile = useContactFlow((state) => state.profile);
+  const memories = useContactFlow((state) => state.memories);
+  const history = useContactFlow((state) => state.history);
+  const relationshipCount = useMemo(
+    () =>
+      new Set([
+        ...memories.map((memory) => memory.contactName.trim()),
+        ...history.map((record) => record.contactName.trim()),
+      ]).size,
+    [history, memories],
+  );
   const copy = drawerCopy[language];
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredSessions = useMemo(() => {
@@ -385,6 +398,28 @@ export function ChatHistoryDrawer({
                 )}
               </ScrollView>
 
+              <View style={styles.memoryDivider} />
+              <Pressable
+                accessibilityLabel={copy.memory}
+                accessibilityRole="button"
+                onPress={() => closeThen(onMemory)}
+                style={({ pressed }) => pressed && styles.pressed}
+              >
+                <View style={styles.memoryNav}>
+                  <View style={styles.memoryIcon}>
+                    <BrainCircuit
+                      color={palette.paper}
+                      size={iconSize.small}
+                      strokeWidth={1.7}
+                    />
+                  </View>
+                  <View style={styles.memoryCopy}>
+                    <Text style={styles.memoryTitle}>{copy.memory}</Text>
+                    <Text style={styles.memoryMeta}>{copy.relationshipCount(relationshipCount)}</Text>
+                  </View>
+                </View>
+              </Pressable>
+
               <View style={styles.footer}>
                 <View style={styles.footerRow}>
                   <View style={styles.profileCell}>
@@ -636,6 +671,8 @@ const drawerCopy = {
     longPressHint: "长按可置顶、编辑名称或删除",
     close: "关闭聊天记录",
     openChat: "打开聊天",
+    memory: "记忆",
+    relationshipCount: (count: number) => `${count} 位联系人`,
     imageCount: (count: number) => `${count} 张图片`,
   },
   en: {
@@ -663,6 +700,9 @@ const drawerCopy = {
     longPressHint: "Long press to pin, rename, or delete",
     close: "Close chat history",
     openChat: "Open chat",
+    memory: "Memory",
+    relationshipCount: (count: number) =>
+      `${count} ${count === 1 ? "contact" : "contacts"}`,
     imageCount: (count: number) => `${count} image${count === 1 ? "" : "s"}`,
   },
 } as const;
@@ -799,6 +839,39 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: palette.accent,
+  },
+  memoryDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: spacing.sm,
+    marginTop: spacing.xs,
+    backgroundColor: palette.line,
+  },
+  memoryNav: {
+    minHeight: 66,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  memoryIcon: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 18,
+    backgroundColor: palette.graphite,
+  },
+  memoryCopy: { flex: 1 },
+  memoryTitle: {
+    color: palette.paper,
+    fontFamily: fonts.bodyMedium,
+    fontSize: typeScale.label,
+  },
+  memoryMeta: {
+    color: palette.smoke,
+    fontFamily: fonts.body,
+    fontSize: typeScale.caption,
+    marginTop: 2,
   },
   contextOverlay: {
     flex: 1,

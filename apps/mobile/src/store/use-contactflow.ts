@@ -55,6 +55,7 @@ type ContactFlowState = {
   toggleChatSessionPinned: (id: string) => void;
   renameChatSession: (id: string, title: string) => void;
   deleteChatSession: (id: string) => void;
+  deleteContactMemory: (contactName: string) => void;
   createModelConfig: (input: ModelConfigInput) => Promise<string>;
   updateModelConfig: (id: string, input: ModelConfigInput) => Promise<void>;
   deleteModelConfig: (id: string) => Promise<void>;
@@ -128,7 +129,7 @@ export const useContactFlow = create<ContactFlowState>()(
       language: "zh",
       themeMode: "light",
       profile: {
-        name: "ContactFlow 用户",
+        name: "Ray",
         bio: "让每段关系都有下一步",
         email: "",
       },
@@ -247,6 +248,20 @@ export const useContactFlow = create<ContactFlowState>()(
             (session) => session.id !== id,
           ),
         })),
+      deleteContactMemory: (contactName) =>
+        set((state) => {
+          const target = contactName.trim().toLocaleLowerCase();
+          const belongsToContact = (name: string) =>
+            name.trim().toLocaleLowerCase() === target;
+          return {
+            history: state.history.filter(
+              (record) => !belongsToContact(record.contactName),
+            ),
+            memories: state.memories.filter(
+              (memory) => !belongsToContact(memory.contactName),
+            ),
+          };
+        }),
       createModelConfig: async (input) => {
         const now = new Date().toISOString();
         const id = `model-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -370,6 +385,11 @@ export const useContactFlow = create<ContactFlowState>()(
           profile: {
             ...currentState.profile,
             ...restored.profile,
+            name: ["ContactFlow 用户", "Louis"].includes(
+              restored.profile?.name ?? "",
+            )
+              ? "Ray"
+              : (restored.profile?.name ?? currentState.profile.name),
           },
         };
       },

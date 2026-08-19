@@ -119,6 +119,7 @@ export function AppCanvasShell({ children }: { children: ReactNode }) {
           setActiveSessionId(null);
           revealChat({ type: "new" });
         }}
+        onMemory={() => router.push("/memory")}
         onPin={pinSession}
         onProfile={() => router.push("/profile")}
         onRename={renameSession}
