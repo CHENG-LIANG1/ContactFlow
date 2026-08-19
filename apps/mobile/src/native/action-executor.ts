@@ -10,7 +10,8 @@ export class ActionCancelledError extends Error {
 }
 
 async function requireCalendarPermission(): Promise<void> {
-  const permission = await Calendar.requestCalendarPermissions(true);
+  // Expo 57 guards getDefaultCalendarSync behind full calendar access.
+  const permission = await Calendar.requestCalendarPermissions(false);
   if (!permission.granted) {
     throw new Error("需要日历写入权限才能创建会议。");
   }
@@ -46,6 +47,9 @@ export async function executeNativeAction(
       familyName: action.payload.familyName,
       givenName: action.payload.givenName,
       company: action.payload.company,
+      emails: action.payload.email
+        ? [{ label: "work", address: action.payload.email }]
+        : undefined,
       phones: [{ label: "mobile", number: action.payload.phone }],
     });
     return { nativeObjectId: contact.id, executedAt: new Date().toISOString() };
@@ -54,8 +58,17 @@ export async function executeNativeAction(
   await requireContactsPermission();
   const contact = await Contacts.Contact.presentPicker();
   if (!contact) throw new ActionCancelledError();
+  const existingEmails = action.payload.email
+    ? await contact.getEmails()
+    : undefined;
   await contact.patch({
     company: action.payload.company,
+    emails: action.payload.email
+      ? [
+          ...(existingEmails ?? []).filter((email) => email.label !== "work"),
+          { label: "work", address: action.payload.email },
+        ]
+      : undefined,
     jobTitle: action.payload.jobTitle,
   });
   return { nativeObjectId: contact.id, executedAt: new Date().toISOString() };

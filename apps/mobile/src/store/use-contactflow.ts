@@ -5,6 +5,8 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import {
   actionContactName,
   actionTitle,
+  normalizeActionProposal,
+  type AgentAnalysis,
   type ActionProposal,
   type HistoryRecord,
   type Insight,
@@ -12,11 +14,18 @@ import {
   type NativeReceipt,
 } from "@/domain/actions";
 import type { ChatSession } from "@/domain/chat";
+import {
+  resolveModelConfig,
+  type ModelConfig,
+  type ModelConfigInput,
+} from "@/domain/model-config";
 import type {
-  AccentId,
+  AgentPermissionMode,
   AppLanguage,
+  ThemeMode,
   UserProfile,
 } from "@/domain/preferences";
+import { deleteModelApiKey, saveModelApiKey } from "@/services/model-secrets";
 
 type ContactFlowState = {
   actions: ActionProposal[];
@@ -24,17 +33,34 @@ type ContactFlowState = {
   memories: MemoryFact[];
   insights: Insight[];
   chatSessions: ChatSession[];
+  modelConfigs: ModelConfig[];
+  selectedModelConfigId: string | null;
+  permissionMode: AgentPermissionMode;
   language: AppLanguage;
-  accentId: AccentId;
+  themeMode: ThemeMode;
   profile: UserProfile;
   setActions: (actions: ActionProposal[]) => void;
   updateActionPayload: (id: string, patch: Record<string, string>) => void;
   setActionExecuting: (id: string) => void;
   failAction: (id: string, error: string) => void;
-  completeAction: (id: string, receipt: NativeReceipt) => void;
+  completeAction: (id: string, receipt: NativeReceipt) => MemoryFact | null;
+  setInsights: (insights: Insight[]) => void;
   saveChatSession: (session: ChatSession) => void;
+  updateChatSessionAnalysis: (
+    id: string,
+    analysis: AgentAnalysis,
+    durationMs?: number,
+  ) => void;
+  toggleChatSessionPinned: (id: string) => void;
+  renameChatSession: (id: string, title: string) => void;
+  deleteChatSession: (id: string) => void;
+  createModelConfig: (input: ModelConfigInput) => Promise<string>;
+  updateModelConfig: (id: string, input: ModelConfigInput) => Promise<void>;
+  deleteModelConfig: (id: string) => Promise<void>;
+  selectModelConfig: (id: string) => void;
+  setPermissionMode: (permissionMode: AgentPermissionMode) => void;
   setLanguage: (language: AppLanguage) => void;
-  setAccentId: (accentId: AccentId) => void;
+  setThemeMode: (themeMode: ThemeMode) => void;
   updateProfile: (patch: Partial<UserProfile>) => void;
   clearChatCache: () => void;
   clearLocalData: () => void;
@@ -76,7 +102,12 @@ function memoryFromAction(
     id: `memory-${action.id}`,
     contactName,
     label: "当前角色",
-    value: `${action.payload.jobTitle} · ${action.payload.company}`,
+    value: [
+      `${action.payload.jobTitle} · ${action.payload.company}`,
+      action.payload.email,
+    ]
+      .filter(Boolean)
+      .join(" · "),
     source: "已确认的联系人更新",
     createdAt: executedAt,
   };
@@ -84,14 +115,17 @@ function memoryFromAction(
 
 export const useContactFlow = create<ContactFlowState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       actions: [],
       history: [],
       memories: [],
       insights: [],
       chatSessions: [],
+      modelConfigs: [],
+      selectedModelConfigId: null,
+      permissionMode: "ask",
       language: "zh",
-      accentId: "paper",
+      themeMode: "light",
       profile: {
         name: "ContactFlow 用户",
         bio: "让每段关系都有下一步",
@@ -123,10 +157,11 @@ export const useContactFlow = create<ContactFlowState>()(
             action.id === id ? { ...action, status: "failed", error } : action,
           ),
         })),
-      completeAction: (id, receipt) =>
+      completeAction: (id, receipt) => {
+        const action = get().actions.find((candidate) => candidate.id === id);
+        if (!action) return null;
+        const memory = memoryFromAction(action, receipt.executedAt);
         set((state) => {
-          const action = state.actions.find((candidate) => candidate.id === id);
-          if (!action) return state;
           const contactName = actionContactName(action);
           const record: HistoryRecord = {
             id: `history-${action.id}`,
@@ -136,20 +171,6 @@ export const useContactFlow = create<ContactFlowState>()(
             contactName,
             executedAt: receipt.executedAt,
             nativeObjectId: receipt.nativeObjectId,
-          };
-          const memory = memoryFromAction(action, receipt.executedAt);
-          const insight: Insight = {
-            id: `insight-${action.id}`,
-            title:
-              action.type === "create_meeting"
-                ? "把承诺带进会面"
-                : "关系信息已补全",
-            body:
-              action.type === "create_meeting"
-                ? `你已经安排与 ${contactName} 的下一次互动。建议会前回看本次聊天里提到的演示重点。`
-                : `${contactName} 的确认资料已写入系统，后续行动会优先使用这次确认后的信息。`,
-            evidence: memory.value,
-            createdAt: receipt.executedAt,
           };
           return {
             actions: state.actions.map((candidate) =>
@@ -165,21 +186,133 @@ export const useContactFlow = create<ContactFlowState>()(
               memory,
               ...state.memories.filter((item) => item.id !== memory.id),
             ],
-            insights: [
-              insight,
-              ...state.insights.filter((item) => item.id !== insight.id),
+          };
+        });
+        return memory;
+      },
+      setInsights: (insights) => set({ insights }),
+      saveChatSession: (session) =>
+        set((state) => {
+          const existing = state.chatSessions.find(
+            (item) => item.id === session.id,
+          );
+          const nextSession: ChatSession = {
+            ...session,
+            isPinned: existing?.isPinned,
+            isTitleEdited: existing?.isTitleEdited,
+            title: existing?.isTitleEdited ? existing.title : session.title,
+          };
+          return {
+            chatSessions: [
+              nextSession,
+              ...state.chatSessions.filter((item) => item.id !== session.id),
             ],
           };
         }),
-      saveChatSession: (session) =>
+      updateChatSessionAnalysis: (id, analysis, durationMs) =>
         set((state) => ({
-          chatSessions: [
-            session,
-            ...state.chatSessions.filter((item) => item.id !== session.id),
-          ],
+          chatSessions: state.chatSessions.map((session) =>
+            session.id === id
+              ? {
+                  ...session,
+                  analysis,
+                  ...(durationMs !== undefined
+                    ? { analysisDurationMs: durationMs }
+                    : {}),
+                  updatedAt: new Date().toISOString(),
+                }
+              : session,
+          ),
         })),
+      toggleChatSessionPinned: (id) =>
+        set((state) => ({
+          chatSessions: state.chatSessions.map((session) =>
+            session.id === id
+              ? { ...session, isPinned: !session.isPinned }
+              : session,
+          ),
+        })),
+      renameChatSession: (id, title) =>
+        set((state) => ({
+          chatSessions: state.chatSessions.map((session) =>
+            session.id === id
+              ? { ...session, title, isTitleEdited: true }
+              : session,
+          ),
+        })),
+      deleteChatSession: (id) =>
+        set((state) => ({
+          chatSessions: state.chatSessions.filter(
+            (session) => session.id !== id,
+          ),
+        })),
+      createModelConfig: async (input) => {
+        const now = new Date().toISOString();
+        const id = `model-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const apiKey = input.apiKey?.trim() ?? "";
+        if (apiKey) await saveModelApiKey(id, apiKey);
+        const config: ModelConfig = {
+          id,
+          provider: input.provider,
+          model: input.model.trim(),
+          baseUrl: input.baseUrl.trim().replace(/\/$/, ""),
+          hasApiKey: Boolean(apiKey),
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((state) => {
+          const modelConfigs = [...state.modelConfigs, config];
+          return {
+            modelConfigs,
+            selectedModelConfigId:
+              resolveModelConfig(modelConfigs, state.selectedModelConfigId)
+                ?.id ?? null,
+          };
+        });
+        return id;
+      },
+      updateModelConfig: async (id, input) => {
+        const apiKey = input.apiKey?.trim() ?? "";
+        if (apiKey) await saveModelApiKey(id, apiKey);
+        set((state) => ({
+          modelConfigs: state.modelConfigs.map((config) =>
+            config.id === id
+              ? {
+                  ...config,
+                  provider: input.provider,
+                  model: input.model.trim(),
+                  baseUrl: input.baseUrl.trim().replace(/\/$/, ""),
+                  hasApiKey: apiKey ? true : config.hasApiKey,
+                  updatedAt: new Date().toISOString(),
+                }
+              : config,
+          ),
+        }));
+      },
+      deleteModelConfig: async (id) => {
+        await deleteModelApiKey(id);
+        set((state) => {
+          const modelConfigs = state.modelConfigs.filter(
+            (config) => config.id !== id,
+          );
+          const selectedModelConfigId =
+            state.selectedModelConfigId === id
+              ? (modelConfigs[0]?.id ?? null)
+              : (resolveModelConfig(modelConfigs, state.selectedModelConfigId)
+                  ?.id ?? null);
+          return { modelConfigs, selectedModelConfigId };
+        });
+      },
+      selectModelConfig: (id) =>
+        set((state) => ({
+          selectedModelConfigId:
+            state.modelConfigs.find((config) => config.id === id)?.id ??
+            state.modelConfigs[0]?.id ??
+            null,
+        })),
+      setPermissionMode: (permissionMode) => set({ permissionMode }),
       setLanguage: (language) => set({ language }),
-      setAccentId: (accentId) => set({ accentId }),
+      setThemeMode: (themeMode) => set({ themeMode }),
       updateProfile: (patch) =>
         set((state) => ({ profile: { ...state.profile, ...patch } })),
       clearChatCache: () =>
@@ -198,12 +331,38 @@ export const useContactFlow = create<ContactFlowState>()(
       storage: createJSONStorage(() => AsyncStorage),
       merge: (persistedState, currentState) => {
         const restored = persistedState as Partial<ContactFlowState>;
+        const chatSessions = (
+          restored.chatSessions ?? currentState.chatSessions
+        ).map((session) =>
+          session.analysis
+            ? {
+                ...session,
+                analysis: {
+                  ...session.analysis,
+                  actions: session.analysis.actions.map(
+                    normalizeActionProposal,
+                  ),
+                },
+              }
+            : session,
+        );
         return {
           ...currentState,
           ...restored,
-          chatSessions: restored.chatSessions ?? currentState.chatSessions,
+          actions: (restored.actions ?? currentState.actions).map(
+            normalizeActionProposal,
+          ),
+          chatSessions,
+          modelConfigs: restored.modelConfigs ?? currentState.modelConfigs,
+          selectedModelConfigId:
+            resolveModelConfig(
+              restored.modelConfigs ?? currentState.modelConfigs,
+              restored.selectedModelConfigId ?? null,
+            )?.id ?? null,
+          permissionMode:
+            restored.permissionMode ?? currentState.permissionMode,
           language: restored.language ?? currentState.language,
-          accentId: restored.accentId ?? currentState.accentId,
+          themeMode: restored.themeMode ?? currentState.themeMode,
           profile: {
             ...currentState.profile,
             ...restored.profile,
@@ -216,8 +375,11 @@ export const useContactFlow = create<ContactFlowState>()(
         memories: state.memories,
         insights: state.insights,
         chatSessions: state.chatSessions,
+        modelConfigs: state.modelConfigs,
+        selectedModelConfigId: state.selectedModelConfigId,
+        permissionMode: state.permissionMode,
         language: state.language,
-        accentId: state.accentId,
+        themeMode: state.themeMode,
         profile: state.profile,
       }),
     },

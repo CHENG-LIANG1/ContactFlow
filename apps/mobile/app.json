@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "contactflow",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.louis.contactflow",
@@ -31,7 +31,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#090A09"
+          "backgroundColor": "#F3F5F0"
         }
       ],
       [
@@ -43,16 +43,27 @@
       [
         "expo-calendar",
         {
-          "writeOnlyAccess": true,
-          "writeOnlyCalendarPermission": "ContactFlow 只在你确认行动后向日历写入会议。"
+          "writeOnlyAccess": false,
+          "calendarPermission": "ContactFlow 只在你确认行动后读取默认日历并写入会议。"
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "ContactFlow 需要读取你选择的聊天截图来生成行动卡。"
+          "photosPermission": "ContactFlow 需要读取照片，以便你选择聊天截图进行分析。",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
-      ]
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "ContactFlow 需要读取照片，以便你选择聊天截图进行分析。",
+          "savePhotosPermission": false,
+          "granularPermissions": ["photo"]
+        }
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
