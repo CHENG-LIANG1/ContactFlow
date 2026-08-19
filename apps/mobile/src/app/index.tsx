@@ -759,9 +759,9 @@ function StatusMessage({
 
 const chatCopy = {
   zh: {
-    welcome: "把聊天截图发给我，再补一句你想做什么。",
+    welcome: "把聊天截图发我，告诉我你想做什么。",
     welcomeDetail:
-      "我会理解人物、时间和承诺，先给你可编辑的行动建议；没有你的确认，我不会写入日历或通讯录。",
+      "我来帮你整理人物、时间和承诺，先给你可编辑的行动建议。确认后，我才会写入日历或通讯录。",
     thinking: "正在理解这段对话",
     thinkingDetail: "识别人物、时间和可以执行的下一步…",
     modelFallback: "所选模型",
@@ -776,7 +776,7 @@ const chatCopy = {
     actionSucceededInsightFailed: "系统动作已经成功，但洞察和建议生成失败。",
     insightModelMissing:
       "原分析使用的模型已被删除，暂时无法生成洞察和建议。",
-    emptyPrompt: "从下方添加截图，或选择一个示例开始",
+    emptyPrompt: "先加张截图，或选一个示例开始",
     openChats: "打开聊天记录",
   },
   en: {
