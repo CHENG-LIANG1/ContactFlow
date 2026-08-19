@@ -15,12 +15,29 @@ import {
 import { BrainCircuit, ChevronDown } from "lucide-react-native";
 import { type ReactNode, useEffect, useMemo } from "react";
 import { StyleSheet } from "react-native";
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { Box } from "@/components/ui/box";
 import { HStack } from "@/components/ui/hstack";
 import { Text } from "@/components/ui/text";
 import { VStack } from "@/components/ui/vstack";
-import { fonts, iconSize, palette, radius, spacing } from "@/constants/theme";
+import {
+  fonts,
+  iconSize,
+  motion,
+  palette,
+  radius,
+  spacing,
+} from "@/constants/theme";
 import type { AppLanguage } from "@/domain/preferences";
 
 const localDisplayAdapter: ChatModelAdapter = {
@@ -178,6 +195,18 @@ function ReasoningSummary({
 }) {
   const collapsed = useAuiState((state) => state.chainOfThought.collapsed);
   const aui = useAui();
+  const chevronRotation = useSharedValue(collapsed ? 0 : 180);
+
+  useEffect(() => {
+    chevronRotation.value = withTiming(collapsed ? 0 : 180, {
+      duration: motion.fast,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [chevronRotation, collapsed]);
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value}deg` }],
+  }));
 
   useEffect(() => {
     if (defaultExpanded) aui.chainOfThought.setCollapsed(false);
@@ -198,48 +227,59 @@ function ReasoningSummary({
         : "Analysis summary";
 
   return (
-    <ChainOfThoughtPrimitive.Root
-      className="mb-3 overflow-hidden rounded-2xl border"
-      style={styles.reasoningRoot}
+    <Animated.View
+      layout={LinearTransition.duration(motion.standard)
+        .easing(Easing.out(Easing.cubic))
+        .reduceMotion(ReduceMotion.System)}
     >
-      <ChainOfThoughtPrimitive.AccordionTrigger
-        accessibilityLabel={
-          language === "zh"
-            ? "展开或收起分析摘要"
-            : "Expand or collapse analysis summary"
-        }
+      <ChainOfThoughtPrimitive.Root
+        className="mb-3 overflow-hidden rounded-2xl border"
+        style={styles.reasoningRoot}
       >
-        <HStack className="min-h-11 items-center gap-2 px-3">
-          <BrainCircuit
-            color={palette.mist}
-            size={iconSize.small}
-            strokeWidth={1.6}
-          />
-          <Text className="flex-1 text-xs" style={styles.reasoningTitle}>
-            {title}
-          </Text>
-          <ChevronDown
-            color={palette.smoke}
-            size={iconSize.small}
-            strokeWidth={1.6}
-            style={{ transform: [{ rotate: collapsed ? "0deg" : "180deg" }] }}
-          />
-        </HStack>
-      </ChainOfThoughtPrimitive.AccordionTrigger>
-      {!collapsed ? (
-        <VStack
-          className="gap-2 border-t px-3 py-3"
-          style={styles.reasoningBody}
+        <ChainOfThoughtPrimitive.AccordionTrigger
+          accessibilityLabel={
+            language === "zh"
+              ? "展开或收起分析摘要"
+              : "Expand or collapse analysis summary"
+          }
         >
-          {children}
-          <Text className="pt-1 text-[12px] leading-[17px]" style={styles.note}>
-            {language === "zh"
-              ? "这里展示的是可核验的处理摘要，不是模型的隐藏推理。"
-              : "This is a reviewable process summary, not hidden model reasoning."}
-          </Text>
-        </VStack>
-      ) : null}
-    </ChainOfThoughtPrimitive.Root>
+          <HStack className="min-h-11 items-center gap-2 px-3">
+            <BrainCircuit
+              color={palette.mist}
+              size={iconSize.small}
+              strokeWidth={1.6}
+            />
+            <Text className="flex-1 text-xs" style={styles.reasoningTitle}>
+              {title}
+            </Text>
+            <Animated.View style={chevronStyle}>
+              <ChevronDown
+                color={palette.smoke}
+                size={iconSize.small}
+                strokeWidth={1.6}
+              />
+            </Animated.View>
+          </HStack>
+        </ChainOfThoughtPrimitive.AccordionTrigger>
+        {!collapsed ? (
+          <Animated.View
+            entering={FadeIn.duration(motion.standard).reduceMotion(
+              ReduceMotion.System,
+            )}
+            exiting={FadeOut.duration(motion.fast).reduceMotion(
+              ReduceMotion.System,
+            )}
+          >
+            <VStack
+              className="gap-2 border-t px-3 py-3"
+              style={styles.reasoningBody}
+            >
+              {children}
+            </VStack>
+          </Animated.View>
+        ) : null}
+      </ChainOfThoughtPrimitive.Root>
+    </Animated.View>
   );
 }
 
@@ -282,7 +322,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodyMedium,
   },
   reasoningBody: { borderColor: palette.line },
-  note: { color: palette.smoke, fontFamily: fonts.body },
   bullet: { backgroundColor: palette.smoke },
   step: { color: palette.smoke, fontFamily: fonts.body },
 });
