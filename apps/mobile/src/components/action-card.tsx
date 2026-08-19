@@ -1,3 +1,4 @@
+import { DateTimePicker } from "@expo/ui/community/datetime-picker";
 import {
   CalendarPlus,
   Check,
@@ -6,7 +7,12 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 import { useState } from "react";
-import { Alert, StyleSheet, type ColorValue } from "react-native";
+import {
+  Alert,
+  StyleSheet,
+  useColorScheme,
+  type ColorValue,
+} from "react-native";
 
 import { Box as View } from "@/components/ui/box";
 import { Card } from "@/components/ui/card";
@@ -18,9 +24,11 @@ import {
   iconSize,
   palette,
   spacing,
+  themeColors,
   typeScale,
 } from "@/constants/theme";
 import type { ActionProposal } from "@/domain/actions";
+import { moveMeetingStart } from "@/domain/meeting-edit";
 import type { AgentPermissionMode, AppLanguage } from "@/domain/preferences";
 
 type ActionCardProps = {
@@ -37,7 +45,20 @@ type EditableField = {
   label: string;
   value: string;
   editable?: boolean;
+  dateTime?: "start" | "end";
 };
+
+function formatDateTime(value: string, language: AppLanguage): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    month: "short",
+    day: "numeric",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 
 function fieldsForAction(
   action: ActionProposal,
@@ -45,16 +66,6 @@ function fieldsForAction(
 ): EditableField[] {
   const copy = actionCopy[language];
   if (action.type === "create_meeting") {
-    const time = new Intl.DateTimeFormat(
-      language === "zh" ? "zh-CN" : "en-US",
-      {
-        month: "short",
-        day: "numeric",
-        weekday: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      },
-    ).format(new Date(action.payload.startAt));
     return [
       {
         key: "title",
@@ -62,7 +73,18 @@ function fieldsForAction(
         value: action.payload.title,
         editable: true,
       },
-      { key: "startAt", label: copy.time, value: time },
+      {
+        key: "startAt",
+        label: copy.startTime,
+        value: action.payload.startAt,
+        dateTime: "start",
+      },
+      {
+        key: "endAt",
+        label: copy.endTime,
+        value: action.payload.endAt,
+        dateTime: "end",
+      },
       {
         key: "location",
         label: copy.location,
@@ -164,6 +186,7 @@ export function ActionCard({
   permissionMode,
 }: ActionCardProps) {
   const copy = actionCopy[language];
+  const colorScheme = useColorScheme();
   const meta = actionMeta(action, language);
   const Icon = meta.icon;
   const [isEditing, setIsEditing] = useState(false);
@@ -176,6 +199,24 @@ export function ActionCard({
       return;
     }
     onChange({ [field.key]: value });
+  };
+
+  const updateMeetingTime = (
+    field: EditableField,
+    nextDate: Date,
+  ): void => {
+    if (action.type !== "create_meeting") return;
+    if (field.dateTime === "start") {
+      onChange(
+        moveMeetingStart(
+          action.payload.startAt,
+          action.payload.endAt,
+          nextDate,
+        ),
+      );
+      return;
+    }
+    onChange({ endAt: nextDate.toISOString() });
   };
 
   const requestConfirmation = () => {
@@ -228,7 +269,31 @@ export function ActionCard({
         {fieldsForAction(action, language).map((field) => (
           <View key={field.key} style={styles.fieldRow}>
             <Text style={styles.fieldLabel}>{field.label}</Text>
-            {(field.editable || field.key === "name") &&
+            {field.dateTime && isEditing && !readOnly ? (
+              <View style={styles.datePickerWrap}>
+                <DateTimePicker
+                  accentColor={
+                    themeColors[colorScheme === "dark" ? "dark" : "light"]
+                      .accent
+                  }
+                  display="compact"
+                  locale={language === "zh" ? "zh_CN" : "en_US"}
+                  minimumDate={
+                    field.dateTime === "end" &&
+                    action.type === "create_meeting"
+                      ? new Date(Date.parse(action.payload.startAt) + 60_000)
+                      : undefined
+                  }
+                  mode="datetime"
+                  onValueChange={(_event, date) =>
+                    updateMeetingTime(field, date)
+                  }
+                  testID={`meeting-${field.dateTime}-picker`}
+                  themeVariant={colorScheme === "dark" ? "dark" : "light"}
+                  value={new Date(field.value)}
+                />
+              </View>
+            ) : (field.editable || field.key === "name") &&
             isEditing &&
             !readOnly ? (
               <Input className="h-10 flex-1" style={styles.inputShell}>
@@ -242,7 +307,11 @@ export function ActionCard({
                 />
               </Input>
             ) : (
-              <Text style={styles.fieldValue}>{field.value}</Text>
+              <Text style={styles.fieldValue}>
+                {field.dateTime
+                  ? formatDateTime(field.value, language)
+                  : field.value}
+              </Text>
             )}
           </View>
         ))}
@@ -305,7 +374,8 @@ export function ActionCard({
 const actionCopy = {
   zh: {
     meeting: "会议",
-    time: "时间",
+    startTime: "开始",
+    endTime: "结束",
     location: "地点",
     name: "姓名",
     phone: "手机",
@@ -327,7 +397,7 @@ const actionCopy = {
       "确认后将打开系统联系人选择器，只更新你看到的公司、职位和工作邮箱。",
     cancel: "取消",
     confirm: "确认并执行",
-    run: "执行",
+    run: "确认执行",
     high: "高",
     medium: "中",
     low: "低",
@@ -335,11 +405,12 @@ const actionCopy = {
     completed: "已确认完成",
     retry: "检查后重试",
     edit: "编辑",
-    doneEditing: "完成编辑",
+    doneEditing: "保存修改",
   },
   en: {
     meeting: "Meeting",
-    time: "Time",
+    startTime: "Starts",
+    endTime: "Ends",
     location: "Location",
     name: "Name",
     phone: "Phone",
@@ -361,7 +432,7 @@ const actionCopy = {
       "This opens the system contact picker and only updates company, role, and work email.",
     cancel: "Cancel",
     confirm: "Confirm and run",
-    run: "Run",
+    run: "Confirm & run",
     high: "High",
     medium: "Medium",
     low: "Low",
@@ -369,7 +440,7 @@ const actionCopy = {
     completed: "Completed",
     retry: "Review and retry",
     edit: "Edit",
-    doneEditing: "Done",
+    doneEditing: "Save edits",
   },
 } as const;
 
@@ -445,6 +516,12 @@ const styles = StyleSheet.create({
     fontSize: typeScale.label,
     textAlign: "right",
     lineHeight: 20,
+  },
+  datePickerWrap: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: "flex-end",
+    justifyContent: "center",
   },
   inputShell: {
     borderColor: palette.line,
