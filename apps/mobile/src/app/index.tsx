@@ -209,11 +209,24 @@ export default function ChatScreen() {
       });
       const durationMs = new Date().getTime() - startedAt;
       const nextActions = proposalsFromAnalysis(result);
+      const summarizedTitle = summarizeSessionTitle(
+        result.contextSummary,
+        note,
+        attachments.length,
+        language,
+      );
       const meta = {
         contextSummary: result.contextSummary,
         notices: result.notices,
         participantNames: result.participantNames,
       };
+      saveChatSession({
+        id: sessionId,
+        title: summarizedTitle,
+        modelConfigId: activeModel?.id,
+        turn: nextTurn,
+        updatedAt,
+      });
       setActions(nextActions);
       setAnalysisMeta(meta);
       updateChatSessionAnalysis(
@@ -655,6 +668,24 @@ function titleForTurn(note: string, imageCount: number) {
     return normalized.length > 24 ? `${normalized.slice(0, 24)}…` : normalized;
   }
   return imageCount === 1 ? "图片对话" : `${imageCount} 张图片`;
+}
+
+function summarizeSessionTitle(
+  contextSummary: string,
+  note: string,
+  imageCount: number,
+  language: AppLanguage,
+) {
+  const source = contextSummary.trim();
+  if (!source) return titleForTurn(note, imageCount);
+
+  const firstSentence = source
+    .split(/[。！？!?.；;]/)[0]
+    .replace(/[“”"]/g, "")
+    .trim();
+  const base = firstSentence.length > 0 ? firstSentence : source;
+  const maxLength = language === "zh" ? 18 : 22;
+  return base.length > maxLength ? `${base.slice(0, maxLength)}…` : base;
 }
 
 function AgentMessage({ children }: { children: ReactNode }) {
