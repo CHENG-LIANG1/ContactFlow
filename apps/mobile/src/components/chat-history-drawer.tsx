@@ -1,5 +1,6 @@
 import {
   BrainCircuit,
+  ChevronRight,
   MessageCircleMore,
   Pencil,
   Pin,
@@ -441,9 +442,16 @@ export function ChatHistoryDrawer({
                             {(profile.name || "U").slice(0, 1).toUpperCase()}
                           </AvatarFallbackText>
                         </Avatar>
-                        <Text numberOfLines={1} style={styles.profileName}>
-                          {profile.name || copy.profile}
-                        </Text>
+                        <View style={styles.profileLabel}>
+                          <Text numberOfLines={1} style={styles.profileName}>
+                            {profile.name || copy.profile}
+                          </Text>
+                          <ChevronRight
+                            color={palette.smoke}
+                            size={iconSize.small}
+                            strokeWidth={1.8}
+                          />
+                        </View>
                       </View>
                     </Pressable>
                   </View>
@@ -994,8 +1002,15 @@ const styles = StyleSheet.create({
     fontFamily: fonts.display,
     fontSize: 16,
   },
-  profileName: {
+  profileLabel: {
     flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  profileName: {
+    flexShrink: 1,
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
     fontSize: typeScale.label,
