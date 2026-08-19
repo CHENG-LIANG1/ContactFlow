@@ -19,6 +19,7 @@ const Text = React.forwardRef<React.ComponentRef<typeof RNText>, ITextProps>(
       sub,
       italic,
       highlight,
+      maxFontSizeMultiplier = 1.35,
       ...props
     },
     ref
@@ -36,6 +37,7 @@ const Text = React.forwardRef<React.ComponentRef<typeof RNText>, ITextProps>(
           highlight: highlight as boolean,
           class: className,
         })}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
         {...props}
         ref={ref}
       />

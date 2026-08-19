@@ -6,7 +6,13 @@ import { Screen, SectionHeading } from "@/components/screen";
 import { Box as View } from "@/components/ui/box";
 import { Card } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
-import { fonts, palette, radius, spacing } from "@/constants/theme";
+import {
+  fonts,
+  iconSize,
+  palette,
+  radius,
+  spacing,
+} from "@/constants/theme";
 import type { ActionType } from "@/domain/actions";
 import { useContactFlow } from "@/store/use-contactflow";
 
@@ -25,9 +31,7 @@ export default function HistoryScreen() {
   return (
     <Screen
       backLabel={copy.back}
-      eyebrow="AUDIT TRAIL / 002"
       onBack={() => router.back()}
-      subtitle={copy.subtitle}
       title={copy.title}
     >
       <View style={styles.section}>
@@ -40,7 +44,11 @@ export default function HistoryScreen() {
             return (
               <Card key={record.id} style={styles.card}>
                 <View style={styles.iconWrap}>
-                  <Icon color={palette.paper} size={18} strokeWidth={1.5} />
+                  <Icon
+                    color={palette.paper}
+                    size={iconSize.small}
+                    strokeWidth={1.7}
+                  />
                 </View>
                 <View style={styles.cardContent}>
                   <Text style={styles.cardTitle}>{record.title}</Text>
@@ -130,7 +138,7 @@ const styles = StyleSheet.create({
   receipt: {
     color: palette.smoke,
     fontFamily: fonts.utility,
-    fontSize: 8,
+    fontSize: 10,
     letterSpacing: 0.5,
     marginTop: spacing.md,
   },

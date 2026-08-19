@@ -15,17 +15,23 @@ import { Input, InputField } from "@/components/ui/input";
 import { Pressable } from "@/components/ui/pressable";
 import { Text } from "@/components/ui/text";
 import { Textarea, TextareaInput } from "@/components/ui/textarea";
-import { accentThemes, fonts, palette, radius, spacing } from "@/constants/theme";
+import {
+  fonts,
+  iconSize,
+  palette,
+  radius,
+  spacing,
+  typeScale,
+} from "@/constants/theme";
 import { useContactFlow } from "@/store/use-contactflow";
 
 export default function ProfileScreen() {
   const router = useRouter();
   const language = useContactFlow((state) => state.language);
-  const accentId = useContactFlow((state) => state.accentId);
   const profile = useContactFlow((state) => state.profile);
   const updateProfile = useContactFlow((state) => state.updateProfile);
   const copy = profileCopy[language];
-  const accent = accentThemes[accentId].color;
+  const accent = palette.accent;
 
   const pickAvatar = async () => {
     try {
@@ -46,9 +52,7 @@ export default function ProfileScreen() {
   return (
     <Screen
       backLabel={copy.back}
-      eyebrow="LOCAL PROFILE"
       onBack={() => router.back()}
-      subtitle={copy.subtitle}
       title={copy.title}
     >
       <View style={styles.identity}>
@@ -70,7 +74,11 @@ export default function ProfileScreen() {
             </AvatarFallbackText>
           </Avatar>
           <View style={styles.cameraBadge}>
-            <Camera color={palette.paper} size={14} strokeWidth={1.7} />
+            <Camera
+              color={palette.paper}
+              size={iconSize.small}
+              strokeWidth={1.7}
+            />
           </View>
         </Pressable>
         <Text style={styles.changeAvatar}>{copy.changeAvatar}</Text>
@@ -156,7 +164,8 @@ const profileCopy = {
   },
   en: {
     title: "Profile",
-    subtitle: "Used only to personalize your agent. Nothing is written to Contacts.",
+    subtitle:
+      "Used only to personalize your agent. Nothing is written to Contacts.",
     changeAvatar: "Change photo",
     name: "Display name",
     namePlaceholder: "Your name",
@@ -200,7 +209,7 @@ const styles = StyleSheet.create({
   changeAvatar: {
     color: palette.mist,
     fontFamily: fonts.bodyMedium,
-    fontSize: 12,
+    fontSize: typeScale.caption,
   },
   form: {
     borderRadius: radius.lg,
@@ -218,15 +227,15 @@ const styles = StyleSheet.create({
   label: {
     color: palette.smoke,
     fontFamily: fonts.utility,
-    fontSize: 9,
-    letterSpacing: 0.7,
+    fontSize: typeScale.caption,
+    letterSpacing: 0.35,
     textTransform: "uppercase",
   },
   input: {
     minHeight: 34,
     color: palette.paper,
     fontFamily: fonts.body,
-    fontSize: 15,
+    fontSize: typeScale.body,
     paddingHorizontal: 0,
     paddingVertical: 6,
   },
@@ -234,7 +243,7 @@ const styles = StyleSheet.create({
   note: {
     color: palette.smoke,
     fontFamily: fonts.body,
-    fontSize: 11,
+    fontSize: typeScale.caption,
     textAlign: "center",
   },
   pressed: { opacity: 0.58 },

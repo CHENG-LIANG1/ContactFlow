@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { HardDrive, Languages, Palette } from "lucide-react-native";
+import { Bot, HardDrive, Languages, Palette } from "lucide-react-native";
 import { StyleSheet } from "react-native";
 
 import { Screen } from "@/components/screen";
@@ -10,14 +10,15 @@ import {
 } from "@/components/settings-list";
 import { Box as View } from "@/components/ui/box";
 import { Text } from "@/components/ui/text";
-import { accentThemes, fonts, palette, spacing } from "@/constants/theme";
+import { fonts, palette, spacing, typeScale } from "@/constants/theme";
 import { useContactFlow } from "@/store/use-contactflow";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const language = useContactFlow((state) => state.language);
-  const accentId = useContactFlow((state) => state.accentId);
+  const themeMode = useContactFlow((state) => state.themeMode);
   const sessions = useContactFlow((state) => state.chatSessions);
+  const modelConfigs = useContactFlow((state) => state.modelConfigs);
   const copy = settingsCopy[language];
   const imageCount = sessions.reduce(
     (total, session) => total + session.turn.attachments.length,
@@ -27,7 +28,6 @@ export default function SettingsScreen() {
   return (
     <Screen
       backLabel={copy.back}
-      eyebrow="PREFERENCES"
       onBack={() => router.back()}
       title={copy.title}
     >
@@ -41,18 +41,26 @@ export default function SettingsScreen() {
         <SettingsDivider />
         <SettingsRow
           icon={Palette}
-          iconColor={accentThemes[accentId].color}
+          iconColor={palette.accent}
           onPress={() => router.push("/settings-theme")}
           title={copy.theme}
-          value={accentThemes[accentId].label}
+          value={themeMode === "light" ? copy.light : copy.dark}
           valueAccessory={
             <View
-              style={[
-                styles.accentDot,
-                { backgroundColor: accentThemes[accentId].color },
-              ]}
+              style={[styles.accentDot, { backgroundColor: palette.accent }]}
             />
           }
+        />
+      </SettingsGroup>
+
+      <SettingsGroup label={copy.aiModels}>
+        <SettingsRow
+          detail={copy.modelsHint}
+          icon={Bot}
+          iconColor={palette.accent}
+          onPress={() => router.push("/settings-models")}
+          title={copy.models}
+          value={`${modelConfigs.length} ${copy.modelsCount}`}
         />
       </SettingsGroup>
 
@@ -76,26 +84,38 @@ const settingsCopy = {
     title: "设置",
     preferences: "偏好设置",
     storage: "本机数据",
+    aiModels: "AI 模型",
+    models: "模型与 API",
+    modelsCount: "个模型",
+    modelsHint: "管理 Provider、Base URL 和 API Key",
     language: "语言",
-    theme: "主题色",
+    theme: "外观",
+    light: "浅色",
+    dark: "深色",
     cache: "缓存管理",
     conversations: "个会话",
     images: "张图片",
     cacheHint: "查看并清理聊天缓存",
-    footnote: "语言、主题和个人资料仅保存在这台设备上。",
+    footnote: "设置保存在本机；API Key 安全存储在系统钥匙串中。",
     back: "返回对话",
   },
   en: {
     title: "Settings",
     preferences: "Preferences",
     storage: "On-device data",
+    aiModels: "AI models",
+    models: "Models & API",
+    modelsCount: "models",
+    modelsHint: "Manage providers, Base URLs, and API keys",
     language: "Language",
-    theme: "Accent color",
+    theme: "Appearance",
+    light: "Light",
+    dark: "Dark",
     cache: "Cache",
     conversations: "chats",
     images: "images",
     cacheHint: "Review and clear chat cache",
-    footnote: "Language, theme, and profile settings stay on this device.",
+    footnote: "Settings stay on-device. API keys use secure system storage.",
     back: "Back to chat",
   },
 } as const;
@@ -109,7 +129,7 @@ const styles = StyleSheet.create({
   footnote: {
     color: palette.smoke,
     fontFamily: fonts.body,
-    fontSize: 11,
+    fontSize: typeScale.caption,
     lineHeight: 17,
     paddingHorizontal: spacing.xs,
   },

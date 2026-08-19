@@ -7,12 +7,16 @@ import { OrbitBackground } from "@/components/orbit-background";
 import { Box as View } from "@/components/ui/box";
 import { Pressable } from "@/components/ui/pressable";
 import { Text } from "@/components/ui/text";
-import { fonts, palette, spacing } from "@/constants/theme";
+import {
+  fonts,
+  iconSize,
+  palette,
+  spacing,
+  typeScale,
+} from "@/constants/theme";
 
 type ScreenProps = PropsWithChildren<{
-  eyebrow: string;
   title: string;
-  subtitle?: string;
   activeOrbit?: boolean;
   trailing?: ReactNode;
   onBack?: () => void;
@@ -20,9 +24,7 @@ type ScreenProps = PropsWithChildren<{
 }>;
 
 export function Screen({
-  eyebrow,
   title,
-  subtitle,
   activeOrbit,
   trailing,
   onBack,
@@ -54,21 +56,17 @@ export function Screen({
                 >
                   <ChevronLeft
                     color={palette.paper}
-                    size={20}
+                    size={iconSize.medium}
                     strokeWidth={1.7}
                   />
                 </Pressable>
               ) : null}
-              <View style={styles.pageIdentity}>
-                <Text accessibilityRole="header" style={styles.title}>
-                  {title}
-                </Text>
-                <Text style={styles.eyebrow}>{eyebrow}</Text>
-              </View>
+              <Text accessibilityRole="header" style={styles.title}>
+                {title}
+              </Text>
             </View>
             {trailing}
           </View>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
           <View style={styles.body}>{children}</View>
         </ScrollView>
       </SafeAreaView>
@@ -109,13 +107,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
-  pageIdentity: { flex: 1, minWidth: 0 },
   backButton: {
-    width: 30,
-    height: 30,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: -8,
+    marginLeft: -10,
   },
   utilityRow: {
     minHeight: 48,
@@ -123,29 +120,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  eyebrow: {
-    color: palette.smoke,
-    fontFamily: fonts.utility,
-    fontSize: 8,
-    lineHeight: 12,
-    letterSpacing: 0.9,
-    textTransform: "uppercase",
-    marginTop: 1,
-  },
   title: {
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
-    fontSize: 20,
+    fontSize: typeScale.heading,
     lineHeight: 28,
     letterSpacing: 0,
-  },
-  subtitle: {
-    color: palette.smoke,
-    fontFamily: fonts.body,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: spacing.sm,
-    maxWidth: 330,
   },
   body: { marginTop: spacing.xl, gap: spacing.xl },
   sectionHeading: {
@@ -159,13 +139,13 @@ const styles = StyleSheet.create({
   sectionLabel: {
     color: palette.mist,
     fontFamily: fonts.utility,
-    fontSize: 10,
+    fontSize: typeScale.caption,
     letterSpacing: 1.1,
   },
   sectionCount: {
     color: palette.smoke,
     fontFamily: fonts.utility,
-    fontSize: 10,
+    fontSize: typeScale.caption,
   },
   pressed: { opacity: 0.55 },
 });

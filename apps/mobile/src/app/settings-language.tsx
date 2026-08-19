@@ -10,9 +10,9 @@ import { Box as View } from "@/components/ui/box";
 import type { AppLanguage } from "@/domain/preferences";
 import { useContactFlow } from "@/store/use-contactflow";
 
-const languages: { id: AppLanguage; label: string; detail: string }[] = [
-  { id: "zh", label: "简体中文", detail: "Simplified Chinese" },
-  { id: "en", label: "English", detail: "英语" },
+const languages: { id: AppLanguage; label: string }[] = [
+  { id: "zh", label: "简体中文" },
+  { id: "en", label: "English" },
 ];
 
 export default function LanguageSettingsScreen() {
@@ -24,7 +24,6 @@ export default function LanguageSettingsScreen() {
   return (
     <Screen
       backLabel={copy.back}
-      eyebrow="PREFERENCES"
       onBack={() => router.back()}
       title={copy.title}
     >
@@ -34,8 +33,6 @@ export default function LanguageSettingsScreen() {
             {index > 0 ? <SettingsDivider inset={16} /> : null}
             <SettingsRow
               accessibilityLabel={`${copy.use} ${item.label}`}
-              detail={item.detail}
-              iconColor="#BFE3CA"
               onPress={() => setLanguage(item.id)}
               selected={language === item.id}
               showsDisclosure={false}

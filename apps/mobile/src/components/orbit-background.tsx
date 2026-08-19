@@ -4,6 +4,7 @@ import { Animated, Easing, StyleSheet, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 
 import { palette } from "@/constants/theme";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 type OrbitBackgroundProps = {
   active?: boolean;
@@ -12,8 +13,13 @@ type OrbitBackgroundProps = {
 /** A single orbital motif gives the product its relationship-map signature. */
 export function OrbitBackground({ active = false }: OrbitBackgroundProps) {
   const [rotation] = useState(() => new Animated.Value(0));
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
+    if (reduceMotion) {
+      rotation.setValue(0);
+      return;
+    }
     const animation = Animated.loop(
       Animated.timing(rotation, {
         toValue: 1,
@@ -24,7 +30,7 @@ export function OrbitBackground({ active = false }: OrbitBackgroundProps) {
     );
     animation.start();
     return () => animation.stop();
-  }, [active, rotation]);
+  }, [active, reduceMotion, rotation]);
 
   const rotate = rotation.interpolate({
     inputRange: [0, 1],
@@ -34,7 +40,7 @@ export function OrbitBackground({ active = false }: OrbitBackgroundProps) {
   return (
     <View pointerEvents="none" style={styles.container}>
       <LinearGradient
-        colors={["rgba(247,246,238,0.12)", "rgba(9,10,9,0)"]}
+        colors={[palette.glow, palette.transparent]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
         style={styles.haze}
@@ -46,8 +52,8 @@ export function OrbitBackground({ active = false }: OrbitBackgroundProps) {
             cy="260"
             r="206"
             fill="none"
-            stroke={palette.paper}
-            strokeOpacity="0.18"
+            stroke={palette.accent}
+            strokeOpacity="0.12"
             strokeWidth="1"
           />
           <Circle
@@ -55,8 +61,8 @@ export function OrbitBackground({ active = false }: OrbitBackgroundProps) {
             cy="260"
             r="178"
             fill="none"
-            stroke={palette.paper}
-            strokeOpacity="0.08"
+            stroke={palette.accent}
+            strokeOpacity="0.06"
             strokeDasharray="2 10"
             strokeWidth="2"
           />
@@ -65,23 +71,23 @@ export function OrbitBackground({ active = false }: OrbitBackgroundProps) {
             cy="260"
             r="142"
             fill="none"
-            stroke={palette.paper}
-            strokeOpacity="0.06"
+            stroke={palette.accent}
+            strokeOpacity="0.04"
             strokeWidth="1"
           />
           <Circle
             cx="98"
             cy="132"
             r="5"
-            fill={palette.paper}
-            fillOpacity="0.68"
+            fill={palette.accent}
+            fillOpacity="0.48"
           />
           <Circle
             cx="98"
             cy="132"
             r="14"
-            fill={palette.paper}
-            fillOpacity="0.07"
+            fill={palette.accent}
+            fillOpacity="0.08"
           />
         </Svg>
       </Animated.View>
@@ -105,7 +111,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 340,
-    opacity: 0.4,
+    opacity: 0.55,
   },
   orbit: {
     position: "absolute",

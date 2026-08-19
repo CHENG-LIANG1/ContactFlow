@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { Image, MessageCircle, Trash2 } from "lucide-react-native";
+import { Images, MessageSquareText, Trash2 } from "lucide-react-native";
 import { Alert } from "react-native";
 
 import { Screen } from "@/components/screen";
@@ -31,18 +31,21 @@ export default function CacheSettingsScreen() {
   return (
     <Screen
       backLabel={copy.back}
-      eyebrow="ON-DEVICE DATA"
       onBack={() => router.back()}
       title={copy.title}
     >
       <SettingsGroup label={copy.usage}>
         <SettingsRow
-          icon={MessageCircle}
+          icon={MessageSquareText}
           title={copy.conversations}
           value={String(sessions.length)}
         />
         <SettingsDivider />
-        <SettingsRow icon={Image} title={copy.images} value={String(imageCount)} />
+        <SettingsRow
+          icon={Images}
+          title={copy.images}
+          value={String(imageCount)}
+        />
       </SettingsGroup>
 
       <SettingsGroup label={copy.management}>

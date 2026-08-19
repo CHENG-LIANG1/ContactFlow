@@ -3,29 +3,33 @@ import {
   Check,
   ContactRound,
   RefreshCcw,
-  ShieldCheck,
+  type LucideIcon,
 } from "lucide-react-native";
-import type { ComponentType } from "react";
-import {
-  Alert,
-  StyleSheet,
-} from "react-native";
+import { useState } from "react";
+import { Alert, StyleSheet, type ColorValue } from "react-native";
 
 import { Box as View } from "@/components/ui/box";
 import { Card } from "@/components/ui/card";
 import { Input, InputField } from "@/components/ui/input";
 import { Pressable } from "@/components/ui/pressable";
 import { Text } from "@/components/ui/text";
-import { fonts, palette, spacing } from "@/constants/theme";
+import {
+  fonts,
+  iconSize,
+  palette,
+  spacing,
+  typeScale,
+} from "@/constants/theme";
 import type { ActionProposal } from "@/domain/actions";
-import type { AppLanguage } from "@/domain/preferences";
+import type { AgentPermissionMode, AppLanguage } from "@/domain/preferences";
 
 type ActionCardProps = {
-  accent: string;
+  accent: ColorValue;
   action: ActionProposal;
   language: AppLanguage;
   onChange: (patch: Record<string, string>) => void;
   onExecute: () => void;
+  permissionMode: AgentPermissionMode;
 };
 
 type EditableField = {
@@ -41,13 +45,16 @@ function fieldsForAction(
 ): EditableField[] {
   const copy = actionCopy[language];
   if (action.type === "create_meeting") {
-    const time = new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
-      month: "short",
-      day: "numeric",
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(action.payload.startAt));
+    const time = new Intl.DateTimeFormat(
+      language === "zh" ? "zh-CN" : "en-US",
+      {
+        month: "short",
+        day: "numeric",
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      },
+    ).format(new Date(action.payload.startAt));
     return [
       {
         key: "title",
@@ -83,6 +90,12 @@ function fieldsForAction(
         value: action.payload.company,
         editable: true,
       },
+      {
+        key: "email",
+        label: copy.email,
+        value: action.payload.email,
+        editable: true,
+      },
     ];
   }
   return [
@@ -103,30 +116,43 @@ function fieldsForAction(
       value: action.payload.jobTitle,
       editable: true,
     },
+    {
+      key: "email",
+      label: copy.email,
+      value: action.payload.email,
+      editable: true,
+    },
   ];
 }
 
-function actionMeta(action: ActionProposal, language: AppLanguage): {
+function actionMeta(
+  action: ActionProposal,
+  language: AppLanguage,
+): {
   label: string;
   title: string;
-  icon: ComponentType<{ color: string; size: number; strokeWidth: number }>;
+  icon: LucideIcon;
 } {
   const copy = actionCopy[language];
   if (action.type === "create_meeting") {
     return {
-      label: "CREATE MEETING",
+      label: copy.createMeetingLabel,
       title: copy.scheduleMeeting,
       icon: CalendarPlus,
     };
   }
   if (action.type === "create_contact") {
     return {
-      label: "CREATE CONTACT",
+      label: copy.createContactLabel,
       title: copy.saveContact,
       icon: ContactRound,
     };
   }
-  return { label: "UPDATE CONTACT", title: copy.updateContact, icon: RefreshCcw };
+  return {
+    label: copy.updateContactLabel,
+    title: copy.updateContact,
+    icon: RefreshCcw,
+  };
 }
 
 export function ActionCard({
@@ -135,12 +161,22 @@ export function ActionCard({
   language,
   onChange,
   onExecute,
+  permissionMode,
 }: ActionCardProps) {
   const copy = actionCopy[language];
   const meta = actionMeta(action, language);
   const Icon = meta.icon;
+  const [isEditing, setIsEditing] = useState(false);
   const readOnly =
     action.status === "executing" || action.status === "succeeded";
+
+  const updateField = (field: EditableField, value: string) => {
+    if (action.type === "create_contact" && field.key === "name") {
+      onChange({ familyName: "", givenName: value });
+      return;
+    }
+    onChange({ [field.key]: value });
+  };
 
   const requestConfirmation = () => {
     Alert.alert(
@@ -166,7 +202,11 @@ export function ActionCard({
     >
       <View style={styles.header}>
         <View style={styles.iconWrap}>
-          <Icon color={palette.paper} size={18} strokeWidth={1.5} />
+          <Icon
+            color={palette.paper}
+            size={iconSize.medium}
+            strokeWidth={1.5}
+          />
         </View>
         <View style={styles.headerText}>
           <Text style={styles.kicker}>{meta.label}</Text>
@@ -175,7 +215,11 @@ export function ActionCard({
         <View style={styles.confidence}>
           <View style={styles.confidenceDot} />
           <Text style={styles.confidenceText}>
-            {action.confidence === "high" ? copy.high : copy.medium}
+            {action.confidence === "high"
+              ? copy.high
+              : action.confidence === "medium"
+                ? copy.medium
+                : copy.low}
           </Text>
         </View>
       </View>
@@ -184,11 +228,14 @@ export function ActionCard({
         {fieldsForAction(action, language).map((field) => (
           <View key={field.key} style={styles.fieldRow}>
             <Text style={styles.fieldLabel}>{field.label}</Text>
-            {field.editable && !readOnly ? (
-              <Input className="h-9 flex-1 border-0 bg-transparent px-0">
+            {(field.editable || field.key === "name") &&
+            isEditing &&
+            !readOnly ? (
+              <Input className="h-10 flex-1" style={styles.inputShell}>
                 <InputField
                   accessibilityLabel={`${meta.title}${field.label}`}
-                  onChangeText={(value) => onChange({ [field.key]: value })}
+                  maxFontSizeMultiplier={1.35}
+                  onChangeText={(value) => updateField(field, value)}
                   selectionColor={palette.paper}
                   style={styles.fieldInput}
                   value={field.value}
@@ -201,42 +248,56 @@ export function ActionCard({
         ))}
       </View>
 
-      <View style={styles.evidenceRow}>
-        <ShieldCheck color={palette.smoke} size={13} strokeWidth={1.5} />
-        <Text numberOfLines={2} style={styles.evidence}>
-          {copy.evidence} · {action.evidence[0]?.excerpt}
-        </Text>
-      </View>
-
       {action.error ? <Text style={styles.error}>{action.error}</Text> : null}
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${meta.title}, ${action.status === "succeeded" ? copy.completed : copy.confirm}`}
-        disabled={
-          action.status === "executing" || action.status === "succeeded"
-        }
-        onPress={requestConfirmation}
-        style={({ pressed }) => [
-          styles.execute,
-          { backgroundColor: accent },
-          action.status === "succeeded" && styles.executeSucceeded,
-          pressed && styles.executePressed,
-        ]}
-      >
-        {action.status === "succeeded" ? (
-          <Check color={palette.void} size={16} strokeWidth={2} />
-        ) : null}
-        <Text style={styles.executeText}>
-          {action.status === "executing"
-            ? copy.executing
-            : action.status === "succeeded"
-              ? copy.completed
-              : action.status === "failed"
-                ? copy.retry
-                : copy.confirm}
-        </Text>
-      </Pressable>
+      <View style={styles.actions}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${isEditing ? copy.doneEditing : copy.edit} ${meta.title}`}
+          disabled={readOnly}
+          onPress={() => setIsEditing((current) => !current)}
+          style={[
+            styles.actionButton,
+            styles.editButton,
+            readOnly && styles.buttonDisabled,
+          ]}
+        >
+          <Text style={styles.editText}>
+            {isEditing ? copy.doneEditing : copy.edit}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${meta.title}, ${action.status === "succeeded" ? copy.completed : copy.run}`}
+          disabled={readOnly}
+          onPress={() => {
+            setIsEditing(false);
+            if (permissionMode === "full") onExecute();
+            else requestConfirmation();
+          }}
+          style={[
+            styles.actionButton,
+            styles.execute,
+            { backgroundColor: accent },
+            action.status === "succeeded" && styles.executeSucceeded,
+            readOnly && styles.buttonDisabled,
+          ]}
+        >
+          {action.status === "succeeded" ? (
+            <Check color={palette.void} size={iconSize.small} strokeWidth={2} />
+          ) : null}
+          <Text style={styles.executeText}>
+            {action.status === "executing"
+              ? copy.executing
+              : action.status === "succeeded"
+                ? copy.completed
+                : action.status === "failed"
+                  ? copy.retry
+                  : copy.run}
+          </Text>
+        </Pressable>
+      </View>
     </Card>
   );
 }
@@ -249,23 +310,32 @@ const actionCopy = {
     name: "姓名",
     phone: "手机",
     company: "公司",
+    email: "邮箱",
     target: "目标",
     role: "职位",
     chooseOnExecute: "（执行时选择）",
     scheduleMeeting: "安排一次会面",
+    createMeetingLabel: "创建会议",
     saveContact: "保存新联系人",
+    createContactLabel: "创建联系人",
     updateContact: "补全联系人资料",
-    meetingConfirm: "确认后将请求日历写入权限，并在默认日历创建这场会议。",
+    updateContactLabel: "更新联系人",
+    meetingConfirm:
+      "确认后将请求日历完整访问权限，用于读取默认日历并创建这场会议；ContactFlow 不会读取你的日程内容。",
     contactConfirm: "确认后将请求通讯录权限，并创建这一位联系人。",
-    updateConfirm: "确认后将打开系统联系人选择器，只更新你看到的公司和职位。",
+    updateConfirm:
+      "确认后将打开系统联系人选择器，只更新你看到的公司、职位和工作邮箱。",
     cancel: "取消",
     confirm: "确认并执行",
+    run: "执行",
     high: "高",
     medium: "中",
-    evidence: "依据",
+    low: "低",
     executing: "正在写入系统…",
     completed: "已确认完成",
     retry: "检查后重试",
+    edit: "编辑",
+    doneEditing: "完成编辑",
   },
   en: {
     meeting: "Meeting",
@@ -274,35 +344,48 @@ const actionCopy = {
     name: "Name",
     phone: "Phone",
     company: "Company",
+    email: "Email",
     target: "Target",
     role: "Role",
     chooseOnExecute: " (choose when executing)",
     scheduleMeeting: "Schedule a meeting",
+    createMeetingLabel: "Create meeting",
     saveContact: "Save new contact",
+    createContactLabel: "Create contact",
     updateContact: "Update contact details",
-    meetingConfirm: "This requests Calendar access and creates the meeting in your default calendar.",
+    updateContactLabel: "Update contact",
+    meetingConfirm:
+      "This requests full Calendar access to locate your default calendar and create the meeting. ContactFlow does not read your events.",
     contactConfirm: "This requests Contacts access and creates this contact.",
-    updateConfirm: "This opens the system contact picker and only updates company and role.",
+    updateConfirm:
+      "This opens the system contact picker and only updates company, role, and work email.",
     cancel: "Cancel",
     confirm: "Confirm and run",
+    run: "Run",
     high: "High",
     medium: "Medium",
-    evidence: "Evidence",
+    low: "Low",
     executing: "Writing to system…",
     completed: "Completed",
     retry: "Review and retry",
+    edit: "Edit",
+    doneEditing: "Done",
   },
 } as const;
 
 const styles = StyleSheet.create({
   card: {
-    padding: spacing.md,
-    backgroundColor: "#171816",
-    borderRadius: 20,
+    padding: spacing.lg,
+    backgroundColor: palette.ink,
+    borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: palette.lineSoft,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
   },
-  cardSucceeded: { borderColor: "rgba(205,232,212,0.34)" },
+  cardSucceeded: { borderColor: palette.success },
   header: { flexDirection: "row", alignItems: "center" },
   iconWrap: {
     width: 34,
@@ -316,13 +399,13 @@ const styles = StyleSheet.create({
   kicker: {
     color: palette.smoke,
     fontFamily: fonts.utility,
-    fontSize: 8,
-    letterSpacing: 0.9,
+    fontSize: typeScale.caption,
+    letterSpacing: 0.35,
   },
   title: {
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
-    fontSize: 15,
+    fontSize: typeScale.body,
     marginTop: 3,
   },
   confidence: { flexDirection: "row", alignItems: "center", gap: 5 },
@@ -335,76 +418,85 @@ const styles = StyleSheet.create({
   confidenceText: {
     color: palette.smoke,
     fontFamily: fonts.body,
-    fontSize: 11,
+    fontSize: typeScale.caption,
   },
   fields: {
-    marginTop: spacing.md,
+    marginTop: spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: palette.line,
   },
   fieldRow: {
-    minHeight: 44,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: palette.line,
   },
   fieldLabel: {
-    width: 48,
+    width: 56,
     color: palette.smoke,
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: typeScale.caption,
   },
   fieldValue: {
     flex: 1,
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
-    fontSize: 13,
+    fontSize: typeScale.label,
     textAlign: "right",
+    lineHeight: 20,
+  },
+  inputShell: {
+    borderColor: palette.line,
+    backgroundColor: palette.graphite,
+    borderRadius: 12,
+    paddingHorizontal: spacing.sm,
   },
   fieldInput: {
     flex: 1,
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
-    fontSize: 13,
+    fontSize: typeScale.label,
     textAlign: "right",
-    paddingVertical: 10,
-  },
-  evidenceRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 7,
-    marginTop: spacing.md,
-  },
-  evidence: {
-    flex: 1,
-    color: palette.smoke,
-    fontFamily: fonts.body,
-    fontSize: 11,
-    lineHeight: 16,
+    paddingVertical: spacing.sm,
   },
   error: {
     color: palette.danger,
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: typeScale.caption,
     lineHeight: 18,
     marginTop: spacing.md,
   },
-  execute: {
-    marginTop: spacing.md,
-    height: 42,
+  actions: {
+    marginTop: spacing.lg,
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  actionButton: {
+    flex: 1,
+    minHeight: 46,
     borderRadius: 14,
-    backgroundColor: palette.paper,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.sm,
   },
+  editButton: {
+    backgroundColor: palette.graphite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.line,
+  },
+  editText: {
+    color: palette.paper,
+    fontFamily: fonts.bodyMedium,
+    fontSize: typeScale.label,
+  },
+  execute: {},
   executeSucceeded: { backgroundColor: palette.success },
-  executePressed: { opacity: 0.8, transform: [{ scale: 0.99 }] },
+  buttonDisabled: { opacity: 0.52 },
   executeText: {
     color: palette.void,
     fontFamily: fonts.bodyMedium,
-    fontSize: 13,
+    fontSize: typeScale.label,
   },
 });

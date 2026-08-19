@@ -1,12 +1,19 @@
 import { Check, ChevronRight, type LucideIcon } from "lucide-react-native";
 import type { ReactNode } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, type ColorValue } from "react-native";
 
 import { Box as View } from "@/components/ui/box";
 import { Card } from "@/components/ui/card";
 import { Pressable } from "@/components/ui/pressable";
 import { Text } from "@/components/ui/text";
-import { fonts, palette, radius, spacing } from "@/constants/theme";
+import {
+  fonts,
+  iconSize,
+  palette,
+  radius,
+  spacing,
+  typeScale,
+} from "@/constants/theme";
 
 export function SettingsGroup({
   children,
@@ -18,12 +25,14 @@ export function SettingsGroup({
   return (
     <View style={styles.section}>
       {label ? <Text style={styles.sectionLabel}>{label}</Text> : null}
-      <Card style={styles.group}>{children}</Card>
+      <Card className="gap-0 p-0" style={styles.group}>
+        {children}
+      </Card>
     </View>
   );
 }
 
-export function SettingsDivider({ inset = 58 }: { inset?: number }) {
+export function SettingsDivider({ inset = 50 }: { inset?: number }) {
   return <View style={[styles.divider, { marginLeft: inset }]} />;
 }
 
@@ -44,7 +53,7 @@ export function SettingsRow({
   destructive?: boolean;
   detail?: string;
   icon?: LucideIcon;
-  iconColor?: string;
+  iconColor?: ColorValue;
   onPress?: () => void;
   selected?: boolean;
   showsDisclosure?: boolean;
@@ -57,14 +66,17 @@ export function SettingsRow({
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityRole={onPress ? "button" : undefined}
       accessibilityState={selected ? { selected: true } : undefined}
-      className="data-[active=true]:bg-[#1A1B18]"
       onPress={onPress}
-      style={styles.row}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
       <View style={styles.rowContent}>
         {Icon ? (
           <View style={styles.iconWrap}>
-            <Icon color={destructive ? palette.danger : iconColor} size={19} strokeWidth={1.7} />
+            <Icon
+              color={destructive ? palette.danger : iconColor}
+              size={iconSize.small}
+              strokeWidth={1.8}
+            />
           </View>
         ) : null}
         <View style={styles.copy}>
@@ -74,11 +86,19 @@ export function SettingsRow({
           {detail ? <Text style={styles.detail}>{detail}</Text> : null}
         </View>
         {valueAccessory}
-        {value ? <Text numberOfLines={1} style={styles.value}>{value}</Text> : null}
+        {value ? (
+          <Text numberOfLines={1} style={styles.value}>
+            {value}
+          </Text>
+        ) : null}
         {selected ? (
-          <Check color={iconColor} size={19} strokeWidth={2.1} />
+          <Check color={iconColor} size={iconSize.medium} strokeWidth={2.1} />
         ) : onPress && showsDisclosure ? (
-          <ChevronRight color={palette.smoke} size={18} strokeWidth={1.7} />
+          <ChevronRight
+            color={palette.smoke}
+            size={iconSize.medium}
+            strokeWidth={1.7}
+          />
         ) : null}
       </View>
     </Pressable>
@@ -86,16 +106,18 @@ export function SettingsRow({
 }
 
 const styles = StyleSheet.create({
-  section: { gap: spacing.sm },
+  section: { gap: spacing.xs },
   sectionLabel: {
     color: palette.smoke,
     fontFamily: fonts.bodyMedium,
-    fontSize: 12,
+    fontSize: typeScale.caption,
     lineHeight: 18,
     paddingHorizontal: spacing.xs,
   },
   group: {
     overflow: "hidden",
+    padding: 0,
+    gap: 0,
     borderRadius: radius.md,
     backgroundColor: palette.ink,
     borderWidth: StyleSheet.hairlineWidth,
@@ -104,13 +126,14 @@ const styles = StyleSheet.create({
   row: {
     width: "100%",
   },
+  rowPressed: { backgroundColor: palette.graphite },
   rowContent: {
-    minHeight: 62,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md,
+    gap: spacing.sm,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: 6,
   },
   iconWrap: {
     width: 30,
@@ -124,21 +147,21 @@ const styles = StyleSheet.create({
   title: {
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: typeScale.label,
+    lineHeight: 19,
   },
   detail: {
     color: palette.smoke,
     fontFamily: fonts.body,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: typeScale.caption,
+    lineHeight: 17,
     marginTop: 2,
   },
   value: {
     maxWidth: "42%",
     color: palette.smoke,
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: typeScale.caption,
     lineHeight: 18,
     textAlign: "right",
   },

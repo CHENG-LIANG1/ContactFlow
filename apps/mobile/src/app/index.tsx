@@ -1,61 +1,101 @@
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import {
-  Ellipsis,
+  CircleAlert,
   Image as ImageIcon,
+  Menu as MenuIcon,
   MessageCircleMore,
-  PanelLeft,
-  SquarePen,
+  RotateCcw,
 } from "lucide-react-native";
-import { type ReactNode, useRef, useState } from "react";
 import {
-  Alert,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { ActionCard } from "@/components/action-card";
+import { AnalysisProcess } from "@/components/analysis-process";
+import { useAppCanvas } from "@/components/app-canvas-shell";
 import { AssistantOutput } from "@/components/assistant-output";
 import { ChatComposer } from "@/components/chat-composer";
-import { ChatHistoryDrawer } from "@/components/chat-history-drawer";
 import { InsightCard } from "@/components/insight-card";
+import {
+  type ComposerMenuAnchor,
+  ModelSwitcher,
+} from "@/components/model-switcher";
+import { PermissionSwitcher } from "@/components/permission-switcher";
 import { Box as View } from "@/components/ui/box";
 import { Image } from "@/components/ui/image";
 import { Pressable } from "@/components/ui/pressable";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import {
-  accentThemes,
   fonts,
+  iconSize,
   palette,
   radius,
   spacing,
+  typeScale,
 } from "@/constants/theme";
-import type { ActionProposal } from "@/domain/actions";
+import {
+  isActionValidForExecution,
+  normalizeActionProposal,
+  proposalsFromAnalysis,
+  type ActionProposal,
+  type AgentAnalysis,
+  type Insight,
+} from "@/domain/actions";
 import type { ChatAttachment, ChatSession } from "@/domain/chat";
-import { analyzeDemoContext, SAMPLE_CONTEXT } from "@/domain/demo-agent";
+import { resolveModelConfig } from "@/domain/model-config";
+import { SAMPLE_CONTEXT } from "@/domain/sample-context";
 import type { AppLanguage } from "@/domain/preferences";
 import {
   ActionCancelledError,
   executeNativeAction,
 } from "@/native/action-executor";
+import {
+  agentErrorMessage,
+  analyzeContext,
+  generateInsights,
+  type AnalysisProgressStage,
+} from "@/services/openai-compatible-agent";
 import { useContactFlow } from "@/store/use-contactflow";
 
 type UserTurn = { note: string; attachments: ChatAttachment[] };
 
 export default function ChatScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
+  const sessionIdSeed = useId();
+  const newSessionIndexRef = useRef(0);
   const sentInSessionRef = useRef(false);
-  const chatSessions = useContactFlow((state) => state.chatSessions);
+  const {
+    activeSessionId,
+    chatIntent,
+    consumeChatIntent,
+    openDrawer,
+    setActiveSessionId,
+  } = useAppCanvas();
   const language = useContactFlow((state) => state.language);
-  const accentId = useContactFlow((state) => state.accentId);
   const actions = useContactFlow((state) => state.actions);
   const insights = useContactFlow((state) => state.insights);
+  const memories = useContactFlow((state) => state.memories);
   const setActions = useContactFlow((state) => state.setActions);
+  const setInsights = useContactFlow((state) => state.setInsights);
   const updateActionPayload = useContactFlow(
     (state) => state.updateActionPayload,
   );
@@ -65,11 +105,37 @@ export default function ChatScreen() {
   const failAction = useContactFlow((state) => state.failAction);
   const completeAction = useContactFlow((state) => state.completeAction);
   const saveChatSession = useContactFlow((state) => state.saveChatSession);
+  const updateChatSessionAnalysis = useContactFlow(
+    (state) => state.updateChatSessionAnalysis,
+  );
+  const modelConfigs = useContactFlow((state) => state.modelConfigs);
+  const selectedModelConfigId = useContactFlow(
+    (state) => state.selectedModelConfigId,
+  );
+  const selectModelConfig = useContactFlow((state) => state.selectModelConfig);
+  const permissionMode = useContactFlow((state) => state.permissionMode);
+  const setPermissionMode = useContactFlow((state) => state.setPermissionMode);
   const [analyzing, setAnalyzing] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [analysisMeta, setAnalysisMeta] = useState<Omit<
+    AgentAnalysis,
+    "actions"
+  > | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisElapsedMs, setAnalysisElapsedMs] = useState(0);
+  const [analysisStartedAt, setAnalysisStartedAt] = useState<number | null>(null);
+  const [analysisStage, setAnalysisStage] =
+    useState<AnalysisProgressStage>("preparing_input");
+  const [insightGenerating, setInsightGenerating] = useState(false);
+  const [insightError, setInsightError] = useState<string | null>(null);
+  const analysisModelConfigIdRef = useRef<string | null>(null);
+  const lastInsightActionRef = useRef<ActionProposal | null>(null);
+  const [modelMenuAnchor, setModelMenuAnchor] =
+    useState<ComposerMenuAnchor | null>(null);
+  const [permissionMenuAnchor, setPermissionMenuAnchor] =
+    useState<ComposerMenuAnchor | null>(null);
   const copy = chatCopy[language];
-  const accent = accentThemes[accentId].color;
+  const accent = palette.accent;
+  const activeModel = resolveModelConfig(modelConfigs, selectedModelConfigId);
   const [turn, setTurn] = useState<UserTurn | null>(() =>
     actions.length > 0
       ? {
@@ -79,58 +145,215 @@ export default function ChatScreen() {
       : null,
   );
 
+  useEffect(() => {
+    if (!analyzing || analysisStartedAt === null) return;
+    const updateElapsed = () =>
+      setAnalysisElapsedMs(Date.now() - analysisStartedAt);
+    updateElapsed();
+    const timer = setInterval(updateElapsed, 100);
+    return () => clearInterval(timer);
+  }, [analyzing, analysisStartedAt]);
+
   const send = async (note: string, attachments: ChatAttachment[]) => {
-    const sessionId = activeSessionId ?? `chat-${Date.now()}`;
+    const startedAt = new Date().getTime();
+    if (!activeSessionId) newSessionIndexRef.current += 1;
+    const sessionId =
+      activeSessionId ?? `chat-${sessionIdSeed}-${newSessionIndexRef.current}`;
     const updatedAt = new Date().toISOString();
     const nextTurn = { note, attachments };
     setActiveSessionId(sessionId);
     saveChatSession({
       id: sessionId,
       title: titleForTurn(note, attachments.length),
+      modelConfigId: activeModel?.id,
       turn: nextTurn,
       updatedAt,
     });
     sentInSessionRef.current = true;
     setTurn(nextTurn);
     setActions([]);
+    setAnalysisMeta(null);
+    setAnalysisError(null);
+    setAnalysisElapsedMs(0);
+    setAnalysisStartedAt(startedAt);
+    setAnalysisStage("preparing_input");
+    setInsightError(null);
     setAnalyzing(true);
     requestAnimationFrame(() =>
       scrollRef.current?.scrollToEnd({ animated: true }),
     );
     await Haptics.selectionAsync();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setActions(analyzeDemoContext(note || "请分析这些聊天截图"));
-    setAnalyzing(false);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (!activeModel) {
+      setAnalysisError(
+        language === "zh"
+          ? "还没有可用模型，请先在模型设置中添加并选择一个模型。"
+          : "No model is configured. Add and select one in model settings.",
+      );
+      setAnalysisElapsedMs(new Date().getTime() - startedAt);
+      setAnalyzing(false);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    analysisModelConfigIdRef.current = activeModel.id;
+    try {
+      const result = await analyzeContext({
+        attachments,
+        config: activeModel,
+        locale: language === "zh" ? "zh-CN" : "en-US",
+        memories,
+        note,
+        now: new Date(),
+        onProgress: setAnalysisStage,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      });
+      const durationMs = new Date().getTime() - startedAt;
+      const nextActions = proposalsFromAnalysis(result);
+      const meta = {
+        contextSummary: result.contextSummary,
+        notices: result.notices,
+        participantNames: result.participantNames,
+      };
+      setActions(nextActions);
+      setAnalysisMeta(meta);
+      updateChatSessionAnalysis(
+        sessionId,
+        {
+          ...meta,
+          actions: nextActions,
+        },
+        durationMs,
+      );
+      setAnalysisElapsedMs(durationMs);
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Success,
+      );
+    } catch (error) {
+      setAnalysisError(
+        agentErrorMessage(error, language === "zh" ? "zh-CN" : "en-US"),
+      );
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setAnalysisElapsedMs(new Date().getTime() - startedAt);
+      setAnalyzing(false);
+    }
   };
 
-  const startNewChat = () => {
+  const startNewChat = useCallback(() => {
     sentInSessionRef.current = false;
     setActiveSessionId(null);
-    setDrawerOpen(false);
     setTurn(null);
     setActions([]);
+    setAnalysisMeta(null);
+    setAnalysisError(null);
+    setAnalysisElapsedMs(0);
+    setAnalysisStartedAt(null);
+    setAnalysisStage("preparing_input");
+    setInsightError(null);
     setAnalyzing(false);
-  };
+  }, [setActions, setActiveSessionId]);
 
-  const openSession = (session: ChatSession) => {
-    sentInSessionRef.current = false;
-    setActiveSessionId(session.id);
-    setTurn(session.turn);
-    setActions(
-      analyzeDemoContext(session.turn.note || "请分析这些聊天截图"),
-    );
-    setAnalyzing(false);
-    setDrawerOpen(false);
+  const openSession = useCallback(
+    (session: ChatSession) => {
+      sentInSessionRef.current = false;
+      setActiveSessionId(session.id);
+      setTurn(session.turn);
+      setActions(
+        session.analysis?.actions.map(normalizeActionProposal) ?? [],
+      );
+      setAnalysisMeta(
+        session.analysis
+          ? {
+              contextSummary: session.analysis.contextSummary,
+              notices: session.analysis.notices,
+              participantNames: session.analysis.participantNames,
+            }
+          : null,
+      );
+      setAnalysisError(null);
+      setAnalysisElapsedMs(session.analysisDurationMs ?? 0);
+      setAnalysisStartedAt(null);
+      setAnalysisStage("validating_schema");
+      setInsightError(null);
+      setAnalyzing(false);
+      analysisModelConfigIdRef.current = session.modelConfigId ?? null;
+      if (session.modelConfigId) selectModelConfig(session.modelConfigId);
+    },
+    [selectModelConfig, setActions, setActiveSessionId],
+  );
+
+  useEffect(() => {
+    if (!chatIntent) return;
+    const frame = requestAnimationFrame(() => {
+      if (chatIntent.type === "session") openSession(chatIntent.session);
+      else startNewChat();
+      consumeChatIntent(chatIntent.key);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [chatIntent, consumeChatIntent, openSession, startNewChat]);
+
+  useEffect(() => {
+    if (!activeSessionId || !analysisMeta) return;
+    updateChatSessionAnalysis(activeSessionId, {
+      ...analysisMeta,
+      actions,
+    });
+  }, [
+    actions,
+    activeSessionId,
+    analysisMeta,
+    updateChatSessionAnalysis,
+  ]);
+
+  const requestInsights = async (action: ActionProposal) => {
+    const modelConfig =
+      modelConfigs.find(
+        (config) => config.id === analysisModelConfigIdRef.current,
+      ) ?? activeModel;
+    if (!modelConfig) {
+      setInsightError(copy.insightModelMissing);
+      return;
+    }
+    lastInsightActionRef.current = action;
+    setInsightGenerating(true);
+    setInsightError(null);
+    try {
+      const result = await generateInsights({
+        action: { ...action, status: "succeeded" },
+        config: modelConfig,
+        contextSummary: analysisMeta?.contextSummary ?? "",
+        locale: language === "zh" ? "zh-CN" : "en-US",
+        memories: useContactFlow.getState().memories,
+      });
+      const createdAt = new Date().toISOString();
+      const nextInsights: Insight[] = result.insights.map((insight, index) => ({
+        ...insight,
+        id: `insight-${action.id}-${index}`,
+        createdAt,
+      }));
+      setInsights(nextInsights);
+    } catch (error) {
+      setInsightError(
+        agentErrorMessage(error, language === "zh" ? "zh-CN" : "en-US"),
+      );
+    } finally {
+      setInsightGenerating(false);
+    }
   };
 
   const execute = async (action: ActionProposal) => {
+    const executableAction = normalizeActionProposal(action);
+    if (!isActionValidForExecution(executableAction)) {
+      failAction(action.id, copy.invalidAction);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
     setActionExecuting(action.id);
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      const receipt = await executeNativeAction(action);
+      const receipt = await executeNativeAction(executableAction);
       completeAction(action.id, receipt);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await requestInsights(executableAction);
     } catch (error) {
       const message =
         error instanceof ActionCancelledError
@@ -145,20 +368,13 @@ export default function ChatScreen() {
 
   return (
     <View style={styles.root}>
-      <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
+      <SafeAreaView edges={["top"]} style={styles.safeArea}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={8}
           style={styles.keyboardView}
         >
-          <ChatHeader
-            accent={accent}
-            language={language}
-            onHistory={() => router.push("/history")}
-            onMemory={() => router.push("/memory")}
-            onNewChat={startNewChat}
-            onOpenChats={() => setDrawerOpen(true)}
-          />
+          <ChatHeader language={language} onOpenChats={openDrawer} />
 
           <ScrollView
             ref={scrollRef}
@@ -180,15 +396,37 @@ export default function ChatScreen() {
 
             {analyzing ? (
               <AgentMessage>
-                <View style={styles.thinkingRow}>
-                  <Spinner color={palette.paper} size="small" />
-                  <View style={styles.thinkingCopy}>
-                    <Text style={styles.agentText}>{copy.thinking}</Text>
-                    <Text style={styles.agentSecondary}>
-                      {copy.thinkingDetail}
-                    </Text>
-                  </View>
-                </View>
+                <AnalysisProcess
+                  attachmentCount={turn?.attachments.length ?? 0}
+                  elapsedMs={analysisElapsedMs}
+                  key={analysisStage}
+                  language={language}
+                  modelName={activeModel?.model ?? copy.modelFallback}
+                  stage={analysisStage}
+                />
+              </AgentMessage>
+            ) : null}
+
+            {!analyzing && analysisError ? (
+              <AgentMessage>
+                <StatusMessage
+                  actionLabel={copy.retryAnalysis}
+                  message={analysisError}
+                  onAction={() => {
+                    if (turn) void send(turn.note, turn.attachments);
+                  }}
+                />
+              </AgentMessage>
+            ) : null}
+
+            {!analyzing && !analysisError && analysisMeta && actions.length === 0 ? (
+              <AgentMessage>
+                <StatusMessage
+                  message={
+                    analysisMeta.notices.map((notice) => notice.message).join("\n") ||
+                    copy.noAction
+                  }
+                />
               </AgentMessage>
             ) : null}
 
@@ -204,6 +442,7 @@ export default function ChatScreen() {
               >
                 <AgentMessage>
                   <AssistantOutput
+                    elapsedMs={analysisElapsedMs || undefined}
                     language={language}
                     message={
                       language === "zh"
@@ -211,12 +450,28 @@ export default function ChatScreen() {
                         : `I found ${actions.length} actionable next step${actions.length === 1 ? "" : "s"}.`
                     }
                     reasoning={
-                      language === "zh"
-                        ? "识别对话中的人物与关系\n提取时间、地点和明确承诺\n生成可编辑、需确认的行动卡片"
-                        : "Identify people and relationships\nExtract timing, place, and commitments\nGenerate editable actions that require confirmation"
+                      [
+                        language === "zh"
+                          ? `已读取 ${turn?.attachments.length ?? 0} 张截图与当前文字`
+                          : `Read ${turn?.attachments.length ?? 0} images and the current note`,
+                        language === "zh"
+                          ? `${activeModel?.model ?? copy.modelFallback} 已返回 JSON Schema 结果`
+                          : `${activeModel?.model ?? copy.modelFallback} returned a JSON Schema result`,
+                        language === "zh"
+                          ? "ContactFlow Schema 校验通过"
+                          : "ContactFlow schema validation passed",
+                        analysisMeta?.contextSummary,
+                        ...(analysisMeta?.notices.map(
+                          (notice) => notice.message,
+                        ) ?? []),
+                      ]
+                        .filter(Boolean)
+                        .join("\n") || copy.analysisComplete
                     }
                   >
-                    <Text style={styles.agentSecondary}>{copy.actionDetail}</Text>
+                    <Text style={styles.agentSecondary}>
+                      {copy.actionDetail}
+                    </Text>
                     <View style={styles.actionList}>
                       {actions.map((action) => (
                         <ActionCard
@@ -228,12 +483,38 @@ export default function ChatScreen() {
                             updateActionPayload(action.id, patch)
                           }
                           onExecute={() => execute(action)}
+                          permissionMode={permissionMode}
                         />
                       ))}
                     </View>
                   </AssistantOutput>
                 </AgentMessage>
               </View>
+            ) : null}
+
+            {insightGenerating ? (
+              <AgentMessage>
+                <View style={styles.thinkingRow}>
+                  <Spinner color={palette.paper} size="small" />
+                  <Text style={styles.agentSecondary}>
+                    {copy.insightGenerating}
+                  </Text>
+                </View>
+              </AgentMessage>
+            ) : null}
+
+            {!insightGenerating && insightError ? (
+              <AgentMessage>
+                <StatusMessage
+                  actionLabel={copy.retryInsight}
+                  message={`${copy.actionSucceededInsightFailed}\n${insightError}`}
+                  onAction={() => {
+                    if (lastInsightActionRef.current) {
+                      void requestInsights(lastInsightActionRef.current);
+                    }
+                  }}
+                />
+              </AgentMessage>
             ) : null}
 
             {insights.length > 0 ? (
@@ -261,101 +542,88 @@ export default function ChatScreen() {
             ) : null}
           </ScrollView>
 
-          <View style={styles.composerDock}>
+          <View
+            style={[
+              styles.composerDock,
+              { paddingBottom: insets.bottom + spacing.sm },
+            ]}
+          >
             <ChatComposer
               accent={accent}
               analyzing={analyzing}
               language={language}
+              modelName={activeModel?.model}
+              onModelPress={(anchor) => {
+                setPermissionMenuAnchor(null);
+                setModelMenuAnchor(anchor);
+              }}
+              onPermissionPress={(anchor) => {
+                setModelMenuAnchor(null);
+                setPermissionMenuAnchor(anchor);
+              }}
               onSend={send}
+              permissionMode={permissionMode}
             />
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
-      <ChatHistoryDrawer
-        activeSessionId={activeSessionId}
-        onClose={() => setDrawerOpen(false)}
-        onNewChat={startNewChat}
-        onProfile={() => {
-          setDrawerOpen(false);
-          router.push("/profile");
-        }}
-        onSelect={openSession}
-        onSettings={() => {
-          setDrawerOpen(false);
-          router.push("/settings");
-        }}
-        sessions={chatSessions}
-        visible={drawerOpen}
+      <ModelSwitcher
+        anchor={modelMenuAnchor}
+        configs={modelConfigs}
+        language={language}
+        onClose={() => setModelMenuAnchor(null)}
+        onManage={() => router.push("/settings-models")}
+        onSelect={selectModelConfig}
+        selectedId={activeModel?.id ?? null}
+        visible={modelMenuAnchor !== null}
+      />
+      <PermissionSwitcher
+        anchor={permissionMenuAnchor}
+        language={language}
+        onClose={() => setPermissionMenuAnchor(null)}
+        onSelect={setPermissionMode}
+        selectedMode={permissionMode}
+        visible={permissionMenuAnchor !== null}
       />
     </View>
   );
 }
 
 function ChatHeader({
-  accent,
   language,
-  onHistory,
-  onMemory,
-  onNewChat,
   onOpenChats,
 }: {
-  accent: string;
   language: AppLanguage;
-  onHistory: () => void;
-  onMemory: () => void;
-  onNewChat: () => void;
   onOpenChats: () => void;
 }) {
   const copy = chatCopy[language];
-  const openMenu = () => {
-    Alert.alert("ContactFlow", copy.menuDetail, [
-      { text: copy.actionHistory, onPress: onHistory },
-      { text: copy.agentMemory, onPress: onMemory },
-      { text: copy.cancel, style: "cancel" },
-    ]);
-  };
 
   return (
     <View style={styles.header}>
-      <Pressable
-        accessibilityLabel={copy.openChats}
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={onOpenChats}
-        style={({ pressed }) => [
-          styles.headerButton,
-          pressed && styles.pressed,
-        ]}
-      >
-        <PanelLeft color={palette.paper} size={21} strokeWidth={1.6} />
-      </Pressable>
+      <View style={styles.headerSide}>
+        <Pressable
+          accessibilityLabel={copy.openChats}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={onOpenChats}
+          style={({ pressed }) => [
+            styles.headerButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <MenuIcon
+            color={palette.paper}
+            size={iconSize.medium}
+            strokeWidth={1.7}
+          />
+        </Pressable>
+      </View>
       <View style={styles.headerCopy}>
-        <Text style={styles.headerTitle}>ContactFlow Agent</Text>
-        <View style={styles.statusRow}>
-          <View style={[styles.statusDot, { backgroundColor: accent }]} />
-          <Text style={styles.headerStatus}>{copy.online}</Text>
-        </View>
+        <Text numberOfLines={1} style={styles.headerTitle}>
+          ContactFlow Agent
+        </Text>
       </View>
-      <View style={styles.headerActions}>
-        <Pressable
-          accessibilityLabel={copy.more}
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={openMenu}
-          style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
-        >
-          <Ellipsis color={palette.mist} size={21} strokeWidth={1.7} />
-        </Pressable>
-        <Pressable
-          accessibilityLabel={copy.newChat}
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={onNewChat}
-          style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
-        >
-          <SquarePen color={palette.paper} size={20} strokeWidth={1.6} />
-        </Pressable>
-      </View>
+      <View style={[styles.headerSide, styles.headerSideRight]} />
     </View>
   );
 }
@@ -363,9 +631,7 @@ function ChatHeader({
 function titleForTurn(note: string, imageCount: number) {
   const normalized = note.trim().replace(/\s+/g, " ");
   if (normalized) {
-    return normalized.length > 24
-      ? `${normalized.slice(0, 24)}…`
-      : normalized;
+    return normalized.length > 24 ? `${normalized.slice(0, 24)}…` : normalized;
   }
   return imageCount === 1 ? "图片对话" : `${imageCount} 张图片`;
 }
@@ -412,7 +678,11 @@ function UserMessage({
                   key={`${attachment.label}-${index}`}
                   style={styles.userImagePlaceholder}
                 >
-                  <ImageIcon color={palette.void} size={19} strokeWidth={1.7} />
+                  <ImageIcon
+                    color={palette.void}
+                    size={iconSize.medium}
+                    strokeWidth={1.7}
+                  />
                   <Text style={styles.userImageLabel}>
                     {language === "zh" ? "示例" : "Demo"}
                   </Text>
@@ -430,8 +700,52 @@ function UserMessage({
 function EmptyPrompt({ language }: { language: AppLanguage }) {
   return (
     <View style={styles.emptyPrompt}>
-      <MessageCircleMore color={palette.smoke} size={17} strokeWidth={1.5} />
+      <MessageCircleMore
+        color={palette.smoke}
+        size={iconSize.medium}
+        strokeWidth={1.5}
+      />
       <Text style={styles.emptyText}>{chatCopy[language].emptyPrompt}</Text>
+    </View>
+  );
+}
+
+function StatusMessage({
+  actionLabel,
+  message,
+  onAction,
+}: {
+  actionLabel?: string;
+  message: string;
+  onAction?: () => void;
+}) {
+  return (
+    <View style={styles.statusMessage}>
+      <CircleAlert
+        color={palette.warning}
+        size={iconSize.medium}
+        strokeWidth={1.6}
+      />
+      <View style={styles.statusCopy}>
+        <Text style={styles.agentSecondary}>{message}</Text>
+        {actionLabel && onAction ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={onAction}
+            style={({ pressed }) => [
+              styles.retryButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <RotateCcw
+              color={palette.void}
+              size={iconSize.small}
+              strokeWidth={1.8}
+            />
+            <Text style={styles.retryText}>{actionLabel}</Text>
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -443,17 +757,19 @@ const chatCopy = {
       "我会理解人物、时间和承诺，先给你可编辑的行动建议；没有你的确认，我不会写入日历或通讯录。",
     thinking: "正在理解这段对话",
     thinkingDetail: "识别人物、时间和可以执行的下一步…",
+    modelFallback: "所选模型",
     actionDetail: "你可以直接修改卡片；点击执行后，我还会再向你确认一次。",
-    insightIntro: "这次执行带来了一条关系提醒：",
+    invalidAction: "卡片包含空值或无效时间，请修正后再执行。",
+    analysisComplete: "已完成结构化分析。",
+    retryAnalysis: "重新分析",
+    noAction: "没有找到证据充分、可以安全执行的动作。",
+    insightIntro: "这次执行带来了以下关系提醒：",
+    insightGenerating: "正在结合已确认记忆生成关系洞察…",
+    retryInsight: "重试洞察",
+    actionSucceededInsightFailed: "系统动作已经成功，但洞察生成失败。",
+    insightModelMissing: "原分析使用的模型已被删除，暂时无法生成洞察。",
     emptyPrompt: "从下方添加截图，或选择一个示例开始",
-    online: "在线 · 本地模式",
-    menuDetail: "查看 Agent 的执行记录与已确认记忆。",
-    actionHistory: "行动记录",
-    agentMemory: "Agent 记忆",
-    cancel: "取消",
     openChats: "打开聊天记录",
-    more: "打开更多选项",
-    newChat: "开始新对话",
   },
   en: {
     welcome: "Send me chat screenshots and tell me what you want to do.",
@@ -461,17 +777,22 @@ const chatCopy = {
       "I’ll identify people, timing, and commitments, then suggest editable actions. Nothing reaches Calendar or Contacts without your confirmation.",
     thinking: "Understanding this conversation",
     thinkingDetail: "Finding people, timing, and actionable next steps…",
-    actionDetail: "Edit any card first. I’ll ask again before writing to the system.",
-    insightIntro: "This action created a relationship reminder:",
+    modelFallback: "the selected model",
+    actionDetail:
+      "Edit any card first. I’ll ask again before writing to the system.",
+    invalidAction: "This card has an empty field or invalid time. Fix it before executing.",
+    analysisComplete: "Structured analysis is complete.",
+    retryAnalysis: "Retry analysis",
+    noAction: "I found no evidence-backed action that is safe to execute.",
+    insightIntro: "This action created these relationship reminders:",
+    insightGenerating: "Generating insights from confirmed memory…",
+    retryInsight: "Retry insight",
+    actionSucceededInsightFailed:
+      "The system action succeeded, but insight generation failed.",
+    insightModelMissing:
+      "The model used for this analysis was deleted, so insights cannot be generated.",
     emptyPrompt: "Add screenshots below, or start with an example",
-    online: "Online · On-device",
-    menuDetail: "View executed actions and confirmed agent memory.",
-    actionHistory: "Action history",
-    agentMemory: "Agent memory",
-    cancel: "Cancel",
     openChats: "Open chat history",
-    more: "Open more options",
-    newChat: "Start a new chat",
   },
 } as const;
 
@@ -480,42 +801,46 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   keyboardView: { flex: 1 },
   header: {
-    height: 62,
+    width: "100%",
+    height: 64,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.lg,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: palette.lineSoft,
-    backgroundColor: "rgba(9,10,9,0.97)",
+    backgroundColor: palette.void,
   },
-  headerCopy: { flex: 1, marginLeft: spacing.md },
+  headerSide: {
+    position: "absolute",
+    left: spacing.md,
+    width: 44,
+    alignItems: "flex-start",
+  },
+  headerSideRight: {
+    left: undefined,
+    right: spacing.md,
+    alignItems: "flex-end",
+  },
+  headerCopy: {
+    width: "68%",
+    minWidth: 0,
+    minHeight: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm,
+  },
   headerTitle: {
+    flexShrink: 1,
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
-    fontSize: 15,
+    fontSize: typeScale.body,
+    lineHeight: 22,
   },
-  statusRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginTop: 3,
-  },
-  statusDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: palette.success,
-  },
-  headerStatus: {
-    color: palette.smoke,
-    fontFamily: fonts.body,
-    fontSize: 10,
-  },
-  headerActions: { flexDirection: "row", alignItems: "center" },
   headerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -536,7 +861,7 @@ const styles = StyleSheet.create({
     height: 30,
     borderRadius: 15,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(247,246,238,0.36)",
+    borderColor: palette.line,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.ink,
@@ -555,7 +880,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: palette.paper,
+    backgroundColor: palette.accent,
     shadowColor: palette.paper,
     shadowOpacity: 0.7,
     shadowRadius: 5,
@@ -563,30 +888,56 @@ const styles = StyleSheet.create({
   agentText: {
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: typeScale.body,
+    lineHeight: 24,
   },
   agentSecondary: {
     color: palette.mist,
     fontFamily: fonts.body,
-    fontSize: 14,
+    fontSize: typeScale.label,
     lineHeight: 21,
     marginTop: spacing.sm,
   },
   thinkingRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   thinkingCopy: { flex: 1 },
+  statusMessage: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.line,
+    backgroundColor: palette.ink,
+    padding: spacing.md,
+  },
+  statusCopy: { flex: 1, gap: spacing.md },
+  retryButton: {
+    alignSelf: "flex-start",
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    borderRadius: radius.sm,
+    backgroundColor: palette.accent,
+    paddingHorizontal: spacing.md,
+  },
+  retryText: {
+    color: palette.void,
+    fontFamily: fonts.bodyMedium,
+    fontSize: typeScale.caption,
+  },
   userRow: { alignItems: "flex-end", paddingLeft: 48 },
   userBubble: {
     maxWidth: "94%",
     borderRadius: 20,
     borderBottomRightRadius: 6,
-    backgroundColor: palette.paper,
+    backgroundColor: palette.accent,
     padding: spacing.md,
   },
   userText: {
     color: palette.void,
     fontFamily: fonts.bodyMedium,
-    fontSize: 14,
+    fontSize: typeScale.label,
     lineHeight: 21,
   },
   userAttachments: {
@@ -600,7 +951,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: radius.sm,
-    backgroundColor: "rgba(9,10,9,0.08)",
+    backgroundColor: palette.lineSoft,
     alignItems: "center",
     justifyContent: "center",
     gap: 3,
@@ -608,7 +959,7 @@ const styles = StyleSheet.create({
   userImageLabel: {
     color: palette.void,
     fontFamily: fonts.utility,
-    fontSize: 8,
+    fontSize: typeScale.caption,
   },
   emptyPrompt: {
     minHeight: 74,
@@ -624,16 +975,13 @@ const styles = StyleSheet.create({
   emptyText: {
     color: palette.smoke,
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: typeScale.caption,
   },
   actionList: { gap: spacing.md, marginTop: spacing.lg },
   composerDock: {
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    backgroundColor: "rgba(9,10,9,0.98)",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: palette.lineSoft,
+    backgroundColor: palette.void,
   },
   pressed: { opacity: 0.55 },
 });

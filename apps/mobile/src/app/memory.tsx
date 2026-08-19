@@ -8,7 +8,13 @@ import { Box as View } from "@/components/ui/box";
 import { Card } from "@/components/ui/card";
 import { Pressable } from "@/components/ui/pressable";
 import { Text } from "@/components/ui/text";
-import { fonts, palette, radius, spacing } from "@/constants/theme";
+import {
+  fonts,
+  iconSize,
+  palette,
+  radius,
+  spacing,
+} from "@/constants/theme";
 import { useContactFlow } from "@/store/use-contactflow";
 
 export default function MemoryScreen() {
@@ -32,9 +38,7 @@ export default function MemoryScreen() {
   return (
     <Screen
       backLabel={copy.back}
-      eyebrow="CONFIRMED MEMORY / 003"
       onBack={() => router.back()}
-      subtitle={copy.subtitle}
       title={copy.title}
       trailing={
         <Pressable
@@ -43,13 +47,21 @@ export default function MemoryScreen() {
           hitSlop={12}
           onPress={clear}
         >
-          <Trash2 color={palette.smoke} size={17} strokeWidth={1.5} />
+          <Trash2
+            color={palette.smoke}
+            size={iconSize.small}
+            strokeWidth={1.7}
+          />
         </Pressable>
       }
     >
       <Card style={styles.promiseCard}>
         <View style={styles.promiseIcon}>
-          <Shield color={palette.paper} size={19} strokeWidth={1.5} />
+          <Shield
+            color={palette.paper}
+            size={iconSize.medium}
+            strokeWidth={1.7}
+          />
         </View>
         <View style={styles.promiseCopy}>
           <Text style={styles.promiseKicker}>{copy.policy}</Text>
@@ -62,14 +74,18 @@ export default function MemoryScreen() {
         <SectionHeading count={memories.length} label={copy.section} />
         {memories.length === 0 ? (
           <View style={styles.empty}>
-            <Database color={palette.line} size={30} strokeWidth={1.3} />
+            <Database
+              color={palette.line}
+              size={iconSize.large}
+              strokeWidth={1.5}
+            />
             <Text style={styles.emptyTitle}>{copy.emptyTitle}</Text>
             <Text style={styles.emptyBody}>{copy.emptyBody}</Text>
           </View>
         ) : (
           memories.map((memory) => (
             <Card key={memory.id} style={styles.memoryCard}>
-              <Avatar className="h-11 w-11 bg-[#f7f6ee]">
+              <Avatar className="h-11 w-11" style={styles.avatar}>
                 <AvatarFallbackText style={styles.avatarText}>
                   {memory.contactName.slice(0, 1)}
                 </AvatarFallbackText>
@@ -142,7 +158,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "rgba(247,246,238,0.07)",
+    backgroundColor: palette.graphite,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -150,7 +166,7 @@ const styles = StyleSheet.create({
   promiseKicker: {
     color: palette.smoke,
     fontFamily: fonts.utility,
-    fontSize: 8,
+    fontSize: 10,
     letterSpacing: 0.9,
   },
   promiseTitle: {
@@ -207,7 +223,7 @@ const styles = StyleSheet.create({
   source: {
     color: palette.smoke,
     fontFamily: fonts.body,
-    fontSize: 10,
+    fontSize: 11,
     marginTop: spacing.sm,
   },
   empty: {

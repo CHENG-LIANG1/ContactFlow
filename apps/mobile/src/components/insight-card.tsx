@@ -4,7 +4,14 @@ import { StyleSheet } from "react-native";
 import { Box as View } from "@/components/ui/box";
 import { Card } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
-import { fonts, palette, radius, spacing } from "@/constants/theme";
+import {
+  fonts,
+  iconSize,
+  palette,
+  radius,
+  spacing,
+  typeScale,
+} from "@/constants/theme";
 import type { Insight } from "@/domain/actions";
 import type { AppLanguage } from "@/domain/preferences";
 
@@ -18,7 +25,11 @@ export function InsightCard({
   return (
     <Card style={styles.card}>
       <View style={styles.iconWrap}>
-        <Sparkles color={palette.paper} size={16} strokeWidth={1.5} />
+        <Sparkles
+          color={palette.paper}
+          size={iconSize.small}
+          strokeWidth={1.5}
+        />
       </View>
       <View style={styles.content}>
         <Text style={styles.kicker}>
@@ -27,7 +38,8 @@ export function InsightCard({
         <Text style={styles.title}>{insight.title}</Text>
         <Text style={styles.body}>{insight.body}</Text>
         <Text style={styles.evidence}>
-          {language === "zh" ? "依据" : "Evidence"} · {insight.evidence}
+          {language === "zh" ? "依据" : "Evidence"} ·{" "}
+          {insight.evidenceIds.join(" · ")}
         </Text>
       </View>
     </Card>
@@ -50,32 +62,32 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(247,246,238,0.08)",
+    backgroundColor: palette.graphite,
   },
   content: { flex: 1 },
   kicker: {
     color: palette.smoke,
     fontFamily: fonts.utility,
-    fontSize: 9,
-    letterSpacing: 1,
+    fontSize: typeScale.caption,
+    letterSpacing: 0.5,
   },
   title: {
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
-    fontSize: 17,
+    fontSize: typeScale.subheading,
     marginTop: spacing.sm,
   },
   body: {
     color: palette.mist,
     fontFamily: fonts.body,
-    fontSize: 14,
+    fontSize: typeScale.label,
     lineHeight: 21,
     marginTop: spacing.sm,
   },
   evidence: {
     color: palette.smoke,
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: typeScale.caption,
     marginTop: spacing.md,
   },
 });

@@ -2,51 +2,87 @@ import { Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { useEffect } from "react";
+import { Appearance } from "react-native";
 
 import "../../global.css";
 
-import { accentThemes, palette } from "@/constants/theme";
+import { AppCanvasShell } from "@/components/app-canvas-shell";
+import { fonts, motion, themeColors } from "@/constants/theme";
 import { GluestackUIProvider } from "@/components/ui/gluestack-ui-provider";
 import { useContactFlow } from "@/store/use-contactflow";
 
-const contactFlowTheme = {
-  dark: true,
-  colors: {
-    primary: palette.paper,
-    background: palette.void,
-    card: palette.ink,
-    text: palette.paper,
-    border: palette.line,
-    notification: palette.paper,
-  },
-  fonts: {
-    regular: { fontFamily: "AvenirNext-Regular", fontWeight: "400" as const },
-    medium: { fontFamily: "AvenirNext-Medium", fontWeight: "500" as const },
-    bold: { fontFamily: "AvenirNext-DemiBold", fontWeight: "600" as const },
-    heavy: { fontFamily: "AvenirNext-Bold", fontWeight: "700" as const },
-  },
-};
-
 export default function RootLayout() {
-  const accentId = useContactFlow((state) => state.accentId);
+  const themeMode = useContactFlow((state) => state.themeMode);
+  const colors = themeColors[themeMode];
   const theme = {
-    ...contactFlowTheme,
+    dark: themeMode === "dark",
     colors: {
-      ...contactFlowTheme.colors,
-      primary: accentThemes[accentId].color,
-      notification: accentThemes[accentId].color,
+      primary: colors.accent,
+      background: colors.void,
+      card: colors.ink,
+      text: colors.paper,
+      border: colors.line,
+      notification: colors.accent,
+    },
+    fonts: {
+      regular: { fontFamily: fonts.body, fontWeight: "400" as const },
+      medium: { fontFamily: fonts.bodyMedium, fontWeight: "500" as const },
+      bold: { fontFamily: fonts.display, fontWeight: "600" as const },
+      heavy: { fontFamily: fonts.display, fontWeight: "700" as const },
     },
   };
 
   useEffect(() => {
-    SystemUI.setBackgroundColorAsync(palette.void).catch(() => undefined);
-  }, []);
+    Appearance.setColorScheme(themeMode);
+    SystemUI.setBackgroundColorAsync(colors.void).catch(() => undefined);
+  }, [colors.void, themeMode]);
 
   return (
-    <GluestackUIProvider mode="dark">
+    <GluestackUIProvider mode={themeMode}>
       <ThemeProvider value={theme}>
-        <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false }} />
+        <StatusBar style={themeMode === "dark" ? "light" : "dark"} />
+        <AppCanvasShell>
+          <Stack screenOptions={{ animation: "none", headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="profile" />
+            <Stack.Screen name="settings" />
+            <Stack.Screen
+              name="settings-models"
+              options={{
+                animation: "slide_from_right",
+                animationDuration: motion.standard,
+              }}
+            />
+            <Stack.Screen
+              name="settings-model"
+              options={{
+                animation: "slide_from_right",
+                animationDuration: motion.standard,
+              }}
+            />
+            <Stack.Screen
+              name="settings-language"
+              options={{
+                animation: "slide_from_right",
+                animationDuration: motion.standard,
+              }}
+            />
+            <Stack.Screen
+              name="settings-theme"
+              options={{
+                animation: "slide_from_right",
+                animationDuration: motion.standard,
+              }}
+            />
+            <Stack.Screen
+              name="settings-cache"
+              options={{
+                animation: "slide_from_right",
+                animationDuration: motion.standard,
+              }}
+            />
+          </Stack>
+        </AppCanvasShell>
       </ThemeProvider>
     </GluestackUIProvider>
   );
