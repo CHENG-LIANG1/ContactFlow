@@ -117,6 +117,56 @@ describe("confirmed memory", () => {
     expect(useContactFlow.getState().memories).toHaveLength(1);
     expect(useContactFlow.getState().insights).toEqual([]);
   });
+
+  it("deletes memory and activity for only the selected contact", () => {
+    useContactFlow.setState({
+      chatSessions: [session("chat-preserved", "Taylor chat")],
+      history: [
+        {
+          actionId: "action-taylor",
+          contactName: "Taylor",
+          executedAt: "2026-08-19T01:00:00.000Z",
+          id: "history-taylor",
+          nativeObjectId: "native-taylor",
+          title: "Taylor meeting",
+          type: "create_meeting",
+        },
+        {
+          actionId: "action-lin",
+          contactName: "林澈",
+          executedAt: "2026-08-19T02:00:00.000Z",
+          id: "history-lin",
+          nativeObjectId: "native-lin",
+          title: "林澈 meeting",
+          type: "create_meeting",
+        },
+      ],
+      memories: [
+        {
+          contactName: "Taylor",
+          createdAt: "2026-08-19T01:00:00.000Z",
+          id: "memory-taylor",
+          label: "下一次互动",
+          source: "已确认的日历事件",
+          value: "8月21日 15:00",
+        },
+        {
+          contactName: "林澈",
+          createdAt: "2026-08-19T02:00:00.000Z",
+          id: "memory-lin",
+          label: "下一次互动",
+          source: "已确认的日历事件",
+          value: "8月25日 10:00",
+        },
+      ],
+    });
+
+    useContactFlow.getState().deleteContactMemory("Taylor");
+
+    expect(useContactFlow.getState().memories.map((item) => item.contactName)).toEqual(["林澈"]);
+    expect(useContactFlow.getState().history.map((item) => item.contactName)).toEqual(["林澈"]);
+    expect(useContactFlow.getState().chatSessions).toHaveLength(1);
+  });
 });
 
 describe("BYOK model management", () => {
