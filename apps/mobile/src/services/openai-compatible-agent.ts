@@ -385,11 +385,13 @@ export async function generateInsights(
     config: input.config,
     jsonSchemaName: "contactflow_insights",
     schema: InsightResultSchema,
-    systemPrompt: `You generate 1-3 concise relationship insights after a user-confirmed action succeeded.
+    systemPrompt: `You generate 2-3 concise, evidence-backed relationship outputs after a user-confirmed action succeeded.
 Return only the provided JSON schema in locale ${input.locale}.
 Use only the supplied context, final action, and confirmed memories.
+Return at least one item with kind "insight" explaining a useful relationship signal or change, and at least one item with kind "suggestion" proposing a concrete, user-controlled next step.
+Suggestions may recommend an action but must never claim it already happened or trigger a tool.
 Every evidenceIds item must exactly equal one of these allowed ids: ${JSON.stringify(allowedEvidenceIdList)}.
-Do not cite any other id. Do not invent facts or future actions.`,
+Do not cite any other id. Do not invent facts, generic advice, or unsupported conclusions.`,
     userContent: JSON.stringify({
       allowedEvidenceIds: allowedEvidenceIdList,
       finalAction: {

@@ -325,11 +325,18 @@ export default function ChatScreen() {
         memories: useContactFlow.getState().memories,
       });
       const createdAt = new Date().toISOString();
-      const nextInsights: Insight[] = result.insights.map((insight, index) => ({
-        ...insight,
-        id: `insight-${action.id}-${index}`,
-        createdAt,
-      }));
+      const orderedInsights = [...result.insights].sort(
+        (left, right) =>
+          Number(left.kind === "suggestion") -
+          Number(right.kind === "suggestion"),
+      );
+      const nextInsights: Insight[] = orderedInsights.map(
+        (insight, index) => ({
+          ...insight,
+          id: `insight-${action.id}-${index}`,
+          createdAt,
+        }),
+      );
       setInsights(nextInsights);
     } catch (error) {
       setInsightError(
@@ -524,8 +531,8 @@ export default function ChatScreen() {
                   message={copy.insightIntro}
                   reasoning={
                     language === "zh"
-                      ? "读取已确认且执行成功的事实\n结合当前对话生成关系提醒"
-                      : "Read confirmed, successfully executed facts\nCombine them with the current conversation"
+                      ? "读取已确认且执行成功的事实\n结合当前上下文生成关系洞察与下一步建议"
+                      : "Read confirmed, successfully executed facts\nGenerate an insight and a grounded next step"
                   }
                 >
                   <View style={styles.actionList}>
@@ -763,11 +770,12 @@ const chatCopy = {
     analysisComplete: "已完成结构化分析。",
     retryAnalysis: "重新分析",
     noAction: "没有找到证据充分、可以安全执行的动作。",
-    insightIntro: "这次执行带来了以下关系提醒：",
-    insightGenerating: "正在结合已确认记忆生成关系洞察…",
-    retryInsight: "重试洞察",
-    actionSucceededInsightFailed: "系统动作已经成功，但洞察生成失败。",
-    insightModelMissing: "原分析使用的模型已被删除，暂时无法生成洞察。",
+    insightIntro: "基于已确认的信息，我整理了关系洞察和下一步建议：",
+    insightGenerating: "正在结合当前上下文与已确认记忆生成洞察和建议…",
+    retryInsight: "重试洞察和建议",
+    actionSucceededInsightFailed: "系统动作已经成功，但洞察和建议生成失败。",
+    insightModelMissing:
+      "原分析使用的模型已被删除，暂时无法生成洞察和建议。",
     emptyPrompt: "从下方添加截图，或选择一个示例开始",
     openChats: "打开聊天记录",
   },
@@ -784,13 +792,13 @@ const chatCopy = {
     analysisComplete: "Structured analysis is complete.",
     retryAnalysis: "Retry analysis",
     noAction: "I found no evidence-backed action that is safe to execute.",
-    insightIntro: "This action created these relationship reminders:",
-    insightGenerating: "Generating insights from confirmed memory…",
-    retryInsight: "Retry insight",
+    insightIntro: "Based on confirmed information, here is an insight and a next step:",
+    insightGenerating: "Generating insights and suggestions from confirmed context…",
+    retryInsight: "Retry insights and suggestions",
     actionSucceededInsightFailed:
-      "The system action succeeded, but insight generation failed.",
+      "The system action succeeded, but insight and suggestion generation failed.",
     insightModelMissing:
-      "The model used for this analysis was deleted, so insights cannot be generated.",
+      "The model used for this analysis was deleted, so insights and suggestions cannot be generated.",
     emptyPrompt: "Add screenshots below, or start with an example",
     openChats: "Open chat history",
   },

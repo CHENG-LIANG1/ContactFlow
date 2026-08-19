@@ -6,6 +6,7 @@ import {
   actionContactName,
   actionTitle,
   normalizeActionProposal,
+  normalizeInsight,
   type AgentAnalysis,
   type ActionProposal,
   type HistoryRecord,
@@ -351,6 +352,9 @@ export const useContactFlow = create<ContactFlowState>()(
           ...restored,
           actions: (restored.actions ?? currentState.actions).map(
             normalizeActionProposal,
+          ),
+          insights: (restored.insights ?? currentState.insights).map(
+            normalizeInsight,
           ),
           chatSessions,
           modelConfigs: restored.modelConfigs ?? currentState.modelConfigs,

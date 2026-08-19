@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react-native";
+import { ArrowUpRight, Lightbulb } from "lucide-react-native";
 import { StyleSheet } from "react-native";
 
 import { Box as View } from "@/components/ui/box";
@@ -22,18 +22,23 @@ export function InsightCard({
   insight: Insight;
   language: AppLanguage;
 }) {
+  const isSuggestion = insight.kind === "suggestion";
+  const Icon = isSuggestion ? ArrowUpRight : Lightbulb;
+
   return (
-    <Card style={styles.card}>
-      <View style={styles.iconWrap}>
-        <Sparkles
-          color={palette.paper}
-          size={iconSize.small}
-          strokeWidth={1.5}
-        />
+    <Card style={[styles.card, isSuggestion && styles.suggestionCard]}>
+      <View style={[styles.iconWrap, isSuggestion && styles.suggestionIcon]}>
+        <Icon color={palette.paper} size={iconSize.small} strokeWidth={1.7} />
       </View>
       <View style={styles.content}>
-        <Text style={styles.kicker}>
-          {language === "zh" ? "关系提醒" : "RELATIONSHIP SIGNAL"}
+        <Text style={[styles.kicker, isSuggestion && styles.suggestionKicker]}>
+          {isSuggestion
+            ? language === "zh"
+              ? "下一步建议"
+              : "NEXT STEP"
+            : language === "zh"
+              ? "关系洞察"
+              : "INSIGHT"}
         </Text>
         <Text style={styles.title}>{insight.title}</Text>
         <Text style={styles.body}>{insight.body}</Text>
@@ -62,8 +67,13 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.graphite,
+    backgroundColor: palette.ink,
   },
+  suggestionCard: {
+    backgroundColor: palette.ink,
+    borderColor: palette.accent,
+  },
+  suggestionIcon: { backgroundColor: palette.glow },
   content: { flex: 1 },
   kicker: {
     color: palette.smoke,
@@ -71,6 +81,7 @@ const styles = StyleSheet.create({
     fontSize: typeScale.caption,
     letterSpacing: 0.5,
   },
+  suggestionKicker: { color: palette.accent },
   title: {
     color: palette.paper,
     fontFamily: fonts.bodyMedium,

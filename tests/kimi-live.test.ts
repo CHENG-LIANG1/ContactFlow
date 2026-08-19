@@ -185,8 +185,8 @@ Put the prominent heading in contextSummary. This is not a chat and has no relat
         jsonSchemaName: "contactflow_insights_live",
         maxAttempts: 1,
         schema: InsightResultSchema,
-        systemPrompt: `Generate 1-3 concise relationship insights in zh-CN after a confirmed action succeeded.
-Use only the supplied action and confirmed memory. Every evidenceIds item must exactly equal one of: memory-live, user_note. Return the schema exactly.`,
+        systemPrompt: `Generate 2-3 concise relationship outputs in zh-CN after a confirmed action succeeded.
+Use only the supplied action and confirmed memory. Include at least one kind "insight" and one kind "suggestion". Every evidenceIds item must exactly equal one of: memory-live, user_note. Return the schema exactly.`,
         userContent: JSON.stringify({
           action: {
             confidence: "high",
@@ -222,10 +222,17 @@ Use only the supplied action and confirmed memory. Every evidenceIds item must e
         }),
       });
 
-      expect(result.insights).toHaveLength(1);
-      expect(result.insights[0].evidenceIds).toEqual(
-        expect.arrayContaining([expect.stringMatching(/^(memory-live|user_note)$/)]),
+      expect(result.insights).toHaveLength(2);
+      expect(result.insights.map((insight) => insight.kind)).toEqual(
+        expect.arrayContaining(["insight", "suggestion"]),
       );
+      for (const insight of result.insights) {
+        expect(insight.evidenceIds).toEqual(
+          expect.arrayContaining([
+            expect.stringMatching(/^(memory-live|user_note)$/),
+          ]),
+        );
+      }
     },
     90_000,
   );

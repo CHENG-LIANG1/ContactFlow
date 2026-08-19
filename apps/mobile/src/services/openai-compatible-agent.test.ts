@@ -235,8 +235,15 @@ describe("OpenAI-compatible agent adapter", () => {
       jsonResponse({
         insights: [
           {
+            body: "会议时间已经由已确认记忆支持。",
+            evidenceIds: ["memory-action-1"],
+            kind: "insight",
+            title: "时间已确认",
+          },
+          {
             body: "会前确认对方当前职责。",
             evidenceIds: ["memory-action-1"],
+            kind: "suggestion",
             title: "会前核对",
           },
         ],
@@ -261,7 +268,12 @@ describe("OpenAI-compatible agent adapter", () => {
           },
         ],
       }),
-    ).resolves.toMatchObject({ insights: [{ evidenceIds: ["memory-action-1"] }] });
+    ).resolves.toMatchObject({
+      insights: [
+        { evidenceIds: ["memory-action-1"], kind: "insight" },
+        { evidenceIds: ["memory-action-1"], kind: "suggestion" },
+      ],
+    });
 
     const [, insightRequest] = fetchImpl.mock.calls[0] as unknown as [
       RequestInfo | URL,
@@ -269,12 +281,32 @@ describe("OpenAI-compatible agent adapter", () => {
     ];
     const insightBody = JSON.parse(String(insightRequest.body));
     expect(insightBody.messages[0].content).toContain("memory-action-1");
+    expect(insightBody.messages[0].content).toContain('kind "suggestion"');
     expect(insightBody.messages[1].content).not.toContain(action.id);
+    expect(
+      insightBody.response_format.json_schema.schema.properties.insights
+        .minItems,
+    ).toBe(2);
+    expect(
+      insightBody.response_format.json_schema.schema.properties.insights.items
+        .properties.kind.enum,
+    ).toEqual(["insight", "suggestion"]);
 
     fetchImpl.mockResolvedValueOnce(
       jsonResponse({
         insights: [
-          { body: "无依据", evidenceIds: ["invented"], title: "错误" },
+          {
+            body: "会议已确认。",
+            evidenceIds: ["user-note-1"],
+            kind: "insight",
+            title: "已有安排",
+          },
+          {
+            body: "无依据",
+            evidenceIds: ["invented"],
+            kind: "suggestion",
+            title: "错误",
+          },
         ],
       }),
     );

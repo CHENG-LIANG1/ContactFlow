@@ -124,7 +124,11 @@ export const AnalysisResultSchema = z.strictObject({
 });
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
 
+export const InsightKindSchema = z.enum(["insight", "suggestion"]);
+export type InsightKind = z.infer<typeof InsightKindSchema>;
+
 export const InsightDraftSchema = z.strictObject({
+  kind: InsightKindSchema,
   title: z.string().trim().min(1).max(80),
   body: z.string().trim().min(1).max(360),
   evidenceIds: z.array(z.string().trim().min(1).max(120)).min(1).max(5),
@@ -132,7 +136,20 @@ export const InsightDraftSchema = z.strictObject({
 export type InsightDraft = z.infer<typeof InsightDraftSchema>;
 
 export const InsightResultSchema = z.strictObject({
-  insights: z.array(InsightDraftSchema).min(1).max(3),
+  insights: z
+    .array(InsightDraftSchema)
+    .min(2)
+    .max(3)
+    .superRefine((insights, context) => {
+      for (const kind of InsightKindSchema.options) {
+        if (!insights.some((insight) => insight.kind === kind)) {
+          context.addIssue({
+            code: "custom",
+            message: `At least one ${kind} is required`,
+          });
+        }
+      }
+    }),
 });
 export type InsightResult = z.infer<typeof InsightResultSchema>;
 
@@ -195,6 +212,16 @@ export type Insight = InsightDraft & {
   id: string;
   createdAt: string;
 };
+
+type LegacyInsight = Omit<Insight, "kind"> & { kind?: InsightKind };
+
+/** Persisted V1 insights predate explicit insight/suggestion roles. */
+export function normalizeInsight(insight: LegacyInsight, index = 0): Insight {
+  return {
+    ...insight,
+    kind: insight.kind ?? (index === 0 ? "insight" : "suggestion"),
+  };
+}
 
 export function normalizeActionProposal(
   action: ActionProposal,

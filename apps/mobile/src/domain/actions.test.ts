@@ -149,7 +149,7 @@ describe("agent runtime contracts", () => {
     ).toBe(false);
   });
 
-  it("rejects blank contacts and insights without evidence", () => {
+  it("rejects blank contacts and malformed insight/suggestion pairs", () => {
     expect(
       AnalysisResultSchema.safeParse({
         ...validResult,
@@ -168,8 +168,57 @@ describe("agent runtime contracts", () => {
     ).toBe(false);
     expect(
       InsightResultSchema.safeParse({
-        insights: [{ body: "建议", evidenceIds: [], title: "提醒" }],
+        insights: [
+          {
+            body: "对方已确认会议时间。",
+            evidenceIds: ["memory-1"],
+            kind: "insight",
+            title: "时间已确认",
+          },
+          {
+            body: "会前发送议程。",
+            evidenceIds: [],
+            kind: "suggestion",
+            title: "准备议程",
+          },
+        ],
       }).success,
     ).toBe(false);
+    expect(
+      InsightResultSchema.safeParse({
+        insights: [
+          {
+            body: "对方已确认会议时间。",
+            evidenceIds: ["memory-1"],
+            kind: "insight",
+            title: "时间已确认",
+          },
+          {
+            body: "联系人已经更新职位。",
+            evidenceIds: ["memory-2"],
+            kind: "insight",
+            title: "职责有变化",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      InsightResultSchema.safeParse({
+        insights: [
+          {
+            body: "对方已确认会议时间。",
+            evidenceIds: ["memory-1"],
+            kind: "insight",
+            title: "时间已确认",
+          },
+          {
+            body: "会前发送议程。",
+            evidenceIds: ["memory-1"],
+            kind: "suggestion",
+            title: "准备议程",
+          },
+        ],
+      }).success,
+    ).toBe(true);
   });
 });
