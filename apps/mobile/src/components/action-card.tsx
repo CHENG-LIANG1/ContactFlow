@@ -492,12 +492,12 @@ const styles = StyleSheet.create({
     fontSize: typeScale.caption,
   },
   fields: {
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: palette.line,
   },
   fieldRow: {
-    minHeight: 48,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -519,7 +519,7 @@ const styles = StyleSheet.create({
   },
   datePickerWrap: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 40,
     alignItems: "flex-end",
     justifyContent: "center",
   },
@@ -545,13 +545,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   actions: {
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     flexDirection: "row",
     gap: spacing.sm,
   },
   actionButton: {
     flex: 1,
-    minHeight: 46,
+    minHeight: 44,
     borderRadius: 14,
     flexDirection: "row",
     alignItems: "center",
