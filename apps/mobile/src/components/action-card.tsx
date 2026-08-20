@@ -13,13 +13,13 @@ import {
   Alert,
   Linking,
   StyleSheet,
+  TextInput,
   useColorScheme,
   type ColorValue,
 } from "react-native";
 
 import { Box as View } from "@/components/ui/box";
 import { Card } from "@/components/ui/card";
-import { Input, InputField } from "@/components/ui/input";
 import { Pressable } from "@/components/ui/pressable";
 import { Text } from "@/components/ui/text";
 import {
@@ -31,6 +31,10 @@ import {
   typeScale,
 } from "@/constants/theme";
 import type { ActionProposal } from "@/domain/actions";
+import {
+  validateActionEdit,
+  type EditFieldError,
+} from "@/domain/edit-validation";
 import { moveMeetingStart } from "@/domain/meeting-edit";
 import type { AgentPermissionMode, AppLanguage } from "@/domain/preferences";
 
@@ -49,6 +53,7 @@ type EditableField = {
   value: string;
   editable?: boolean;
   dateTime?: "start" | "end";
+  maxLength?: number;
 };
 
 function formatDateTime(value: string, language: AppLanguage): string {
@@ -75,6 +80,7 @@ function fieldsForAction(
         label: copy.meeting,
         value: action.payload.title,
         editable: true,
+        maxLength: 120,
       },
       {
         key: "startAt",
@@ -93,6 +99,7 @@ function fieldsForAction(
         label: copy.location,
         value: action.payload.location,
         editable: true,
+        maxLength: 200,
       },
     ];
   }
@@ -102,24 +109,28 @@ function fieldsForAction(
         key: "name",
         label: copy.name,
         value: `${action.payload.familyName}${action.payload.givenName}`,
+        maxLength: 80,
       },
       {
         key: "phone",
         label: copy.phone,
         value: action.payload.phone,
         editable: true,
+        maxLength: 40,
       },
       {
         key: "company",
         label: copy.company,
         value: action.payload.company,
         editable: true,
+        maxLength: 120,
       },
       {
         key: "email",
         label: copy.email,
         value: action.payload.email,
         editable: true,
+        maxLength: 160,
       },
     ];
   }
@@ -140,6 +151,7 @@ function fieldsForAction(
       label: copy.role,
       value: action.payload.jobTitle,
       editable: true,
+      maxLength: 120,
     },
     {
       key: "email",
@@ -193,15 +205,45 @@ export function ActionCard({
   const meta = actionMeta(action, language);
   const Icon = meta.icon;
   const [isEditing, setIsEditing] = useState(false);
+  // Edits stay in a local draft until saved or confirmed, so leaving the chat
+  // (which unmounts the card) cancels them instead of persisting half-done
+  // values into the session.
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, EditFieldError>>({});
   const readOnly =
     action.status === "executing" || action.status === "succeeded";
 
-  const updateField = (field: EditableField, value: string) => {
-    if (action.type === "create_contact" && field.key === "name") {
-      onChange({ familyName: "", givenName: value });
-      return;
+  const draftValue = (field: EditableField) => draft[field.key] ?? field.value;
+
+  const clearErrors = (...keys: string[]) => {
+    setErrors((current) => {
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+  };
+
+  const currentValues = () => {
+    const values: Record<string, string> = {};
+    for (const field of fieldsForAction(action, language)) {
+      values[field.key] = draftValue(field);
     }
-    onChange({ [field.key]: value });
+    return values;
+  };
+
+  const errorTextFor = (code: EditFieldError) =>
+    code === "required"
+      ? copy.errorRequired
+      : code === "email"
+        ? copy.errorEmail
+        : code === "phone"
+          ? copy.errorPhone
+          : copy.errorEndAfterStart;
+
+  const updateField = (field: EditableField, value: string) => {
+    clearErrors(field.key);
+    setDraft((current) => ({ ...current, [field.key]: value }));
   };
 
   const updateMeetingTime = (
@@ -209,17 +251,29 @@ export function ActionCard({
     nextDate: Date,
   ): void => {
     if (action.type !== "create_meeting") return;
+    clearErrors("startAt", "endAt");
+    const startAt = draft.startAt ?? action.payload.startAt;
+    const endAt = draft.endAt ?? action.payload.endAt;
     if (field.dateTime === "start") {
-      onChange(
-        moveMeetingStart(
-          action.payload.startAt,
-          action.payload.endAt,
-          nextDate,
-        ),
-      );
+      setDraft((current) => ({
+        ...current,
+        ...moveMeetingStart(startAt, endAt, nextDate),
+      }));
       return;
     }
-    onChange({ endAt: nextDate.toISOString() });
+    setDraft((current) => ({ ...current, endAt: nextDate.toISOString() }));
+  };
+
+  const commitDraft = () => {
+    if (Object.keys(draft).length === 0) return;
+    const { name, ...rest } = draft;
+    const patch: Record<string, string> = { ...rest };
+    if (action.type === "create_contact" && name !== undefined) {
+      patch.familyName = "";
+      patch.givenName = name;
+    }
+    onChange(patch);
+    setDraft({});
   };
 
   const requestConfirmation = () => {
@@ -301,55 +355,68 @@ export function ActionCard({
       </View>
 
       <View style={styles.fields}>
-        {fieldsForAction(action, language).map((field) => (
-          <View key={field.key} style={styles.fieldRow}>
-            <Text style={styles.fieldLabel}>{field.label}</Text>
-            {field.dateTime && isEditing && !readOnly ? (
-              <View style={styles.datePickerWrap}>
-                <DateTimePicker
-                  accentColor={
-                    themeColors[colorScheme === "dark" ? "dark" : "light"]
-                      .accent
-                  }
-                  display="compact"
-                  locale={language === "zh" ? "zh_CN" : "en_US"}
-                  minimumDate={
-                    field.dateTime === "end" &&
-                    action.type === "create_meeting"
-                      ? new Date(Date.parse(action.payload.startAt) + 60_000)
-                      : undefined
-                  }
-                  mode="datetime"
-                  onValueChange={(_event, date) =>
-                    updateMeetingTime(field, date)
-                  }
-                  testID={`meeting-${field.dateTime}-picker`}
-                  themeVariant={colorScheme === "dark" ? "dark" : "light"}
-                  value={new Date(field.value)}
-                />
+        {fieldsForAction(action, language).map((field) => {
+          const error = errors[field.key];
+          return (
+            <View key={field.key} style={styles.fieldWrap}>
+              <View style={styles.fieldRow}>
+                <Text style={styles.fieldLabel}>{field.label}</Text>
+                {field.dateTime && isEditing && !readOnly ? (
+                  <View style={styles.datePickerWrap}>
+                    <DateTimePicker
+                      accentColor={
+                        themeColors[colorScheme === "dark" ? "dark" : "light"]
+                          .accent
+                      }
+                      display="compact"
+                      locale={language === "zh" ? "zh_CN" : "en_US"}
+                      minimumDate={
+                        field.dateTime === "end" &&
+                        action.type === "create_meeting"
+                          ? new Date(
+                              Date.parse(
+                                draft.startAt ?? action.payload.startAt,
+                              ) + 60_000,
+                            )
+                          : undefined
+                      }
+                      mode="datetime"
+                      onValueChange={(_event, date) =>
+                        updateMeetingTime(field, date)
+                      }
+                      style={styles.datePicker}
+                      testID={`meeting-${field.dateTime}-picker`}
+                      themeVariant={colorScheme === "dark" ? "dark" : "light"}
+                      value={new Date(draftValue(field))}
+                    />
+                  </View>
+                ) : (field.editable || field.key === "name") &&
+                  isEditing &&
+                  !readOnly ? (
+                  <TextInput
+                    accessibilityLabel={`${meta.title}${field.label}`}
+                    maxLength={field.maxLength}
+                    maxFontSizeMultiplier={1.35}
+                    onChangeText={(value) => updateField(field, value)}
+                    placeholderTextColor={palette.smoke}
+                    selectionColor={palette.accent}
+                    style={styles.fieldInput}
+                    value={draftValue(field)}
+                  />
+                ) : (
+                  <Text style={styles.fieldValue}>
+                    {field.dateTime
+                      ? formatDateTime(field.value, language)
+                      : field.value}
+                  </Text>
+                )}
               </View>
-            ) : (field.editable || field.key === "name") &&
-            isEditing &&
-            !readOnly ? (
-              <Input className="h-9 flex-1" style={styles.inputShell}>
-                <InputField
-                  accessibilityLabel={`${meta.title}${field.label}`}
-                  maxFontSizeMultiplier={1.35}
-                  onChangeText={(value) => updateField(field, value)}
-                  selectionColor={palette.paper}
-                  style={styles.fieldInput}
-                  value={field.value}
-                />
-              </Input>
-            ) : (
-              <Text style={styles.fieldValue}>
-                {field.dateTime
-                  ? formatDateTime(field.value, language)
-                  : field.value}
-              </Text>
-            )}
-          </View>
-        ))}
+              {isEditing && error ? (
+                <Text style={styles.fieldError}>{errorTextFor(error)}</Text>
+              ) : null}
+            </View>
+          );
+        })}
       </View>
 
       {action.error ? <Text style={styles.error}>{action.error}</Text> : null}
@@ -370,54 +437,92 @@ export function ActionCard({
             />
             <Text style={styles.editText}>{viewAction.label}</Text>
           </Pressable>
+        ) : isEditing ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${copy.cancelEdit} ${meta.title}`}
+            onPress={() => {
+              setDraft({});
+              setErrors({});
+              setIsEditing(false);
+            }}
+            style={[styles.actionButton, styles.editButton]}
+          >
+            <Text style={styles.editText}>{copy.cancelEdit}</Text>
+          </Pressable>
         ) : (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${isEditing ? copy.doneEditing : copy.edit} ${meta.title}`}
+            accessibilityLabel={`${copy.edit} ${meta.title}`}
             disabled={readOnly}
-            onPress={() => setIsEditing((current) => !current)}
+            onPress={() => {
+              setDraft({});
+              setErrors({});
+              setIsEditing(true);
+            }}
             style={[
               styles.actionButton,
               styles.editButton,
               readOnly && styles.buttonDisabled,
             ]}
           >
-            <Text style={styles.editText}>
-              {isEditing ? copy.doneEditing : copy.edit}
-            </Text>
+            <Text style={styles.editText}>{copy.edit}</Text>
           </Pressable>
         )}
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${meta.title}, ${action.status === "succeeded" ? copy.completed : copy.run}`}
-          disabled={readOnly}
-          onPress={() => {
-            setIsEditing(false);
-            if (permissionMode === "full") onExecute();
-            else requestConfirmation();
-          }}
-          style={[
-            styles.actionButton,
-            styles.execute,
-            { backgroundColor: accent },
-            action.status === "succeeded" && styles.executeSucceeded,
-            readOnly && styles.buttonDisabled,
-          ]}
-        >
-          {action.status === "succeeded" ? (
-            <Check color={palette.void} size={iconSize.small} strokeWidth={2} />
-          ) : null}
-          <Text style={styles.executeText}>
-            {action.status === "executing"
-              ? copy.executing
-              : action.status === "succeeded"
-                ? copy.completed
-                : action.status === "failed"
-                  ? copy.retry
-                  : copy.run}
-          </Text>
-        </Pressable>
+        {isEditing ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${copy.doneEditing} ${meta.title}`}
+            onPress={() => {
+              const nextErrors = validateActionEdit(action, currentValues());
+              if (Object.keys(nextErrors).length > 0) {
+                setErrors(nextErrors);
+                return;
+              }
+              setErrors({});
+              commitDraft();
+              setIsEditing(false);
+            }}
+            style={[
+              styles.actionButton,
+              styles.execute,
+              { backgroundColor: accent },
+            ]}
+          >
+            <Text style={styles.executeText}>{copy.doneEditing}</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${meta.title}, ${action.status === "succeeded" ? copy.completed : copy.run}`}
+            disabled={readOnly}
+            onPress={() => {
+              if (permissionMode === "full") onExecute();
+              else requestConfirmation();
+            }}
+            style={[
+              styles.actionButton,
+              styles.execute,
+              { backgroundColor: accent },
+              action.status === "succeeded" && styles.executeSucceeded,
+              readOnly && styles.buttonDisabled,
+            ]}
+          >
+            {action.status === "succeeded" ? (
+              <Check color={palette.void} size={iconSize.small} strokeWidth={2} />
+            ) : null}
+            <Text style={styles.executeText}>
+              {action.status === "executing"
+                ? copy.executing
+                : action.status === "succeeded"
+                  ? copy.completed
+                  : action.status === "failed"
+                    ? copy.retry
+                    : copy.run}
+            </Text>
+          </Pressable>
+        )}
       </View>
     </Card>
   );
@@ -476,7 +581,12 @@ const actionCopy = {
     viewErrorBody: "请确认设备上已安装并配置日历或通讯录。",
     retry: "检查后重试",
     edit: "编辑",
-    doneEditing: "保存修改",
+    doneEditing: "完成",
+    cancelEdit: "取消",
+    errorRequired: "这一项不能为空",
+    errorEmail: "邮箱格式不正确",
+    errorPhone: "电话号码格式不正确",
+    errorEndAfterStart: "结束时间需晚于开始时间",
   },
   en: {
     meeting: "Meeting",
@@ -515,7 +625,12 @@ const actionCopy = {
     viewErrorBody: "Make sure Calendar or Contacts is available on this device.",
     retry: "Review and retry",
     edit: "Edit",
-    doneEditing: "Save edits",
+    doneEditing: "Done",
+    cancelEdit: "Cancel",
+    errorRequired: "This field is required",
+    errorEmail: "Enter a valid email address",
+    errorPhone: "Enter a valid phone number",
+    errorEndAfterStart: "End time must be after the start",
   },
 } as const;
 
@@ -573,12 +688,21 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: palette.line,
   },
+  fieldWrap: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: palette.line,
+  },
   fieldRow: {
     minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: palette.line,
+  },
+  fieldError: {
+    color: palette.danger,
+    fontFamily: fonts.body,
+    fontSize: typeScale.caption,
+    lineHeight: 16,
+    paddingBottom: 6,
   },
   fieldLabel: {
     width: 56,
@@ -597,22 +721,27 @@ const styles = StyleSheet.create({
   datePickerWrap: {
     flex: 1,
     minHeight: 40,
-    alignItems: "flex-end",
-    justifyContent: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
   },
-  inputShell: {
-    borderColor: palette.lineSoft,
-    backgroundColor: palette.graphite,
-    borderRadius: 10,
-    paddingHorizontal: spacing.sm,
+  // The SwiftUI host must receive a definite width from the row, otherwise it
+  // measures itself at viewport width and the compact pill overflows the card.
+  datePicker: {
+    flex: 1,
+    height: 40,
   },
   fieldInput: {
     flex: 1,
+    height: 36,
+    backgroundColor: palette.graphite,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.lineSoft,
+    borderRadius: 10,
+    paddingHorizontal: spacing.md,
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
     fontSize: typeScale.label,
-    textAlign: "right",
-    paddingVertical: spacing.sm,
   },
   error: {
     color: palette.danger,

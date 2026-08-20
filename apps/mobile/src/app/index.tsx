@@ -35,7 +35,6 @@ import {
   type ComposerMenuAnchor,
   ModelSwitcher,
 } from "@/components/model-switcher";
-import { PermissionSwitcher } from "@/components/permission-switcher";
 import { Box as View } from "@/components/ui/box";
 import { Pressable } from "@/components/ui/pressable";
 import { ThinkingDots } from "@/components/thinking-dots";
@@ -221,8 +220,6 @@ export default function ChatScreen() {
     (state) => state.selectedModelConfigId,
   );
   const selectModelConfig = useContactFlow((state) => state.selectModelConfig);
-  const permissionMode = useContactFlow((state) => state.permissionMode);
-  const setPermissionMode = useContactFlow((state) => state.setPermissionMode);
   const [analysisMeta, setAnalysisMeta] = useState<Omit<
     AgentAnalysis,
     "actions"
@@ -274,8 +271,6 @@ export default function ChatScreen() {
   const analysisTurnRef = useRef<ChatTurn | null>(null);
   const analysisSessionRef = useRef<string | null>(null);
   const [modelMenuAnchor, setModelMenuAnchor] =
-    useState<ComposerMenuAnchor | null>(null);
-  const [permissionMenuAnchor, setPermissionMenuAnchor] =
     useState<ComposerMenuAnchor | null>(null);
   const copy = chatCopy[language];
   const activeModel = resolveModelConfig(modelConfigs, selectedModelConfigId);
@@ -614,9 +609,14 @@ export default function ChatScreen() {
 
   const execute = useCallback(
     async (action: ActionProposal) => {
-      const currentLanguage = useContactFlow.getState().language;
+      const state = useContactFlow.getState();
+      const currentLanguage = state.language;
       const currentCopy = chatCopy[currentLanguage];
-      const executableAction = normalizeActionProposal(action);
+      // The card commits its edit draft right before executing, so prefer the
+      // freshest store copy over the possibly-stale rendered prop.
+      const latest =
+        state.actions.find((item) => item.id === action.id) ?? action;
+      const executableAction = normalizeActionProposal(latest);
       if (!isActionValidForExecution(executableAction)) {
         failAction(action.id, currentCopy.invalidAction);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -761,16 +761,8 @@ export default function ChatScreen() {
                 <ChatComposer
                   language={language}
                   modelName={activeModel?.model}
-                  onModelPress={(anchor) => {
-                    setPermissionMenuAnchor(null);
-                    setModelMenuAnchor(anchor);
-                  }}
-                  onPermissionPress={(anchor) => {
-                    setModelMenuAnchor(null);
-                    setPermissionMenuAnchor(anchor);
-                  }}
+                  onModelPress={(anchor) => setModelMenuAnchor(anchor)}
                   onQueue={queueTurn}
-                  permissionMode={permissionMode}
                 />
               </View>
             </KeyboardAvoidingView>
@@ -784,14 +776,6 @@ export default function ChatScreen() {
             onSelect={selectModelConfig}
             selectedId={activeModel?.id ?? null}
             visible={modelMenuAnchor !== null}
-          />
-          <PermissionSwitcher
-            anchor={permissionMenuAnchor}
-            language={language}
-            onClose={() => setPermissionMenuAnchor(null)}
-            onSelect={setPermissionMode}
-            selectedMode={permissionMode}
-            visible={permissionMenuAnchor !== null}
           />
         </View>
       </ChatActionsContext.Provider>

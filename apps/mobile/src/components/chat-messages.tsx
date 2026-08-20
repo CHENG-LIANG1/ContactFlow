@@ -22,8 +22,7 @@ import {
   useEffect,
   useState,
 } from "react";
-import { StyleSheet, useWindowDimensions } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet } from "react-native";
 import Animated, {
   Easing,
   LinearTransition,
@@ -91,30 +90,22 @@ const messageCopy = {
   },
 } as const;
 
-/** Welcome copy plus the empty-thread prompt, rendered above the message list. */
+/** Welcome copy rendered above the message list only while the thread is empty. */
 export function TimelineHeader() {
   const language = useContactFlow((state) => state.language);
   const hasMessages = useAuiState((state) => state.thread.messages.length > 0);
-  const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
   const copy = messageCopy[language];
 
-  // With no messages yet, center the prompt between the header and composer.
-  const emptyMinHeight = Math.max(
-    windowHeight - insets.top - insets.bottom - 64 - 220 - spacing.xl,
-    220,
-  );
+  if (hasMessages) return null;
 
   return (
-    <>
-      <View style={styles.agentRow}>
-        <AgentMark />
-        <View style={styles.agentContent}>
-          <Text style={styles.agentText}>{copy.welcome}</Text>
-          <Text style={styles.agentSecondary}>{copy.welcomeDetail}</Text>
-        </View>
+    <View style={styles.agentRow}>
+      <AgentMark />
+      <View style={styles.agentContent}>
+        <Text style={styles.agentText}>{copy.welcome}</Text>
+        <Text style={styles.agentSecondary}>{copy.welcomeDetail}</Text>
       </View>
-    </>
+    </View>
   );
 }
 
@@ -453,6 +444,20 @@ function ReasoningSummary({ children }: { children: ReactNode }) {
 }
 
 function ReasoningSteps({ text }: ReasoningMessagePartProps) {
+  const running = useAuiState((state) =>
+    state.message.role === "assistant"
+      ? state.message.status.type === "running"
+      : false,
+  );
+  // While running this is the model's live thinking narrative; once settled it
+  // becomes the step summary, so bullets only apply to the finished form.
+  if (running) {
+    return (
+      <Text className="flex-1 text-xs leading-[18px]" style={styles.step}>
+        {text}
+      </Text>
+    );
+  }
   return (
     <>
       {text

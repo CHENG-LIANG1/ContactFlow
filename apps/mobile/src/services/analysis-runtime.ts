@@ -75,7 +75,8 @@ export function analysisSteps(
     : "Validating evidence and required fields with the ContactFlow schema";
 }
 
-/** Static reasoning summary rendered once an analysis run completes. */
+/** Reasoning summary rendered once an analysis run completes: the model's own
+ * thinking first, then the pipeline summarized as steps. */
 export function resultReasoning({
   attachmentCount,
   language,
@@ -85,12 +86,13 @@ export function resultReasoning({
   attachmentCount: number;
   language: AppLanguage;
   modelName: string;
-  result: Pick<AnalysisResult, "contextSummary" | "notices">;
+  result: Pick<AnalysisResult, "contextSummary" | "notices" | "thinking">;
 }) {
   const lines = [
     language === "zh"
       ? `已读取 ${attachmentCount} 张截图与当前文字`
       : `Read ${attachmentCount} image${attachmentCount === 1 ? "" : "s"} and the current note`,
+    result.thinking,
     language === "zh"
       ? `${modelName} 已返回 JSON Schema 结果`
       : `${modelName} returned a JSON Schema result`,
@@ -210,14 +212,14 @@ export function createAnalysisAdapter(
           return;
         }
 
-        // Stage lines appear instantly; the model's own thinking replaces them
-        // as soon as it starts streaming.
-        const processLines: string[] = [];
+        // While running, show only what is real right now: a single line for
+        // the pipeline activity in flight, replaced by the model's streamed
+        // thinking as soon as it arrives. Steps are summarized at the end.
         let thinkingText = "";
         const currentReasoning = () =>
-          thinkingText.trim() ||
-          [...processLines, analysisSteps(lastStage, stepsOptions)].join("\n");
-        yield reasoningUpdate(analysisSteps(lastStage, stepsOptions));
+          thinkingText.trim() || analysisSteps(lastStage, stepsOptions);
+        let lastReasoning = currentReasoning();
+        yield reasoningUpdate(lastReasoning);
 
         const channel = createEventChannel();
         const outcome: { error?: unknown; result?: AnalysisResult } = {};
@@ -248,13 +250,12 @@ export function createAnalysisAdapter(
         for (;;) {
           const event = await channel.next();
           if (event === null) break;
-          if (event.kind === "stage") {
-            processLines.push(analysisSteps(lastStage, stepsOptions));
-            lastStage = event.stage;
-          } else {
-            thinkingText = event.text;
-          }
-          yield reasoningUpdate(currentReasoning());
+          if (event.kind === "stage") lastStage = event.stage;
+          else thinkingText = event.text;
+          const reasoning = currentReasoning();
+          if (reasoning === lastReasoning) continue;
+          lastReasoning = reasoning;
+          yield reasoningUpdate(reasoning);
         }
 
         const durationMs = Date.now() - startedAt;

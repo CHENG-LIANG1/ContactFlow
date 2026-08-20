@@ -169,6 +169,7 @@ describe("resultReasoning / resultText", () => {
       result: analysisResult,
     });
     expect(reasoning).toContain("校验通过");
+    expect(reasoning).toContain(analysisResult.thinking);
     expect(resultText({
       actionCount: 1,
       language: "zh",
@@ -189,30 +190,40 @@ describe("turnFromUserMessage", () => {
 
 describe("createAnalysisAdapter", () => {
   it("streams reasoning updates and returns the final result", async () => {
-    analyzeContextMock.mockImplementation(async ({ onProgress }) => {
-      onProgress?.("requesting_model");
-      onProgress?.("validating_schema");
-      return analysisResult;
-    });
+    analyzeContextMock.mockImplementation(
+      async ({ onProgress, onThinking }) => {
+        onProgress?.("requesting_model");
+        onThinking?.("看到下周二下午三点的会议。");
+        onProgress?.("validating_schema");
+        return analysisResult;
+      },
+    );
     const { bridge, events } = makeBridge();
     const adapter = createAnalysisAdapter(() => bridge);
 
     const updates = await collectRun(adapter, [userMessage("安排会议")]);
 
-    // initial yield + one per progress stage + final result
+    // initial yield + one per visible reasoning change + final result
     expect(updates.length).toBe(4);
-    // process accumulates line by line while running
-    const firstReasoning = updates[0].content?.[0];
-    const secondReasoning = updates[1].content?.[0];
-    const thirdReasoning = updates[2].content?.[0];
-    expect(firstReasoning).toMatchObject({ type: "reasoning" });
-    expect(
-      (secondReasoning as { text: string }).text.split("\n").length,
-    ).toBe(2);
-    expect(
-      (thirdReasoning as { text: string }).text.split("\n").length,
-    ).toBe(3);
-    const final = updates[updates.length - 1];
+    const [first, second, third, final] = updates;
+    // a single live line per pipeline activity, never accumulated steps
+    expect(first.content?.[0]).toMatchObject({
+      type: "reasoning",
+      text: "读取文字与1 张截图，压缩图片并移除原始元数据",
+    });
+    const secondText = (second.content?.[0] as { text: string }).text;
+    expect(secondText).toContain("k3");
+    expect(secondText).not.toContain("\n");
+    // the model's real thinking replaces the pipeline status once it streams
+    expect(third.content?.[0]).toMatchObject({
+      type: "reasoning",
+      text: "看到下周二下午三点的会议。",
+    });
+    // completion summarizes the run as steps, including the model's thinking
+    const finalReasoning = (final.content?.[0] as { text: string }).text;
+    expect(finalReasoning).toContain("校验通过");
+    expect(finalReasoning).toContain(analysisResult.thinking);
+    expect(finalReasoning.split("\n").length).toBeGreaterThan(2);
     expect(final.content?.[1]).toMatchObject({ type: "text" });
     expect(final.metadata?.custom).toMatchObject({
       elapsedMs: expect.any(Number),

@@ -12,7 +12,6 @@ import {
   ChevronRight,
   ContactRound,
   Plus,
-  ShieldCheck,
   Square,
   X,
 } from "lucide-react-native";
@@ -60,16 +59,13 @@ import {
   type AgentPreset,
   type AgentPresetId,
 } from "@/domain/agent-presets";
-import { permissionLabel } from "@/components/permission-switcher";
-import type { AgentPermissionMode, AppLanguage } from "@/domain/preferences";
+import type { AppLanguage } from "@/domain/preferences";
 
 type ChatComposerProps = {
   language: AppLanguage;
   modelName?: string;
   onModelPress?: (anchor: ComposerMenuAnchor) => void;
-  onPermissionPress?: (anchor: ComposerMenuAnchor) => void;
   onQueue?: (note: string, attachments: ChatAttachment[]) => void;
-  permissionMode?: AgentPermissionMode;
 };
 
 const MAX_ATTACHMENTS = 9;
@@ -100,14 +96,11 @@ export function ChatComposer({
   language,
   modelName,
   onModelPress,
-  onPermissionPress,
   onQueue,
-  permissionMode = "ask",
 }: ChatComposerProps) {
   const [photoTrayOpen, setPhotoTrayOpen] = useState(false);
   const [galleryExpanded, setGalleryExpanded] = useState(false);
   const modelTriggerRef = useRef<ComponentRef<typeof NativePressable>>(null);
-  const permissionTriggerRef = useRef<ComponentRef<typeof NativePressable>>(null);
   const composerText = useAuiState((state) => state.composer.text);
   const attachments = useAuiState((state) => state.composer.attachments);
   const running = useAuiState((state) => state.thread.isRunning);
@@ -222,32 +215,6 @@ export function ChatComposer({
                   size={iconSize.small}
                   strokeWidth={1.7}
                 />
-              </View>
-            </NativePressable>
-          ) : null}
-          {onPermissionPress ? (
-            <NativePressable
-              accessibilityLabel={copy.choosePermission}
-              accessibilityRole="button"
-              hitSlop={4}
-              onPress={() =>
-                permissionTriggerRef.current?.measureInWindow(
-                  (x, y, width, height) =>
-                    onPermissionPress({ height, width, x, y }),
-                )
-              }
-              ref={permissionTriggerRef}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <View style={[styles.suggestion, styles.presetSuggestion]}>
-                <ShieldCheck
-                  color={permissionMode === "full" ? hues.orange.foreground : palette.mist}
-                  size={iconSize.small}
-                  strokeWidth={1.7}
-                />
-                <Text style={styles.suggestionText}>
-                  {permissionLabel(language, permissionMode)}
-                </Text>
               </View>
             </NativePressable>
           ) : null}
@@ -532,7 +499,6 @@ const composerCopy = {
     addImagesLabel: "打开最近照片",
     sendLabel: "发送给 ContactFlow Agent",
     chooseModel: "选择模型",
-    choosePermission: "选择权限模式",
     previewImageHint: "打开大图预览",
     stopLabel: "停止分析",
     queueLabel: "排队等待发送",
@@ -547,7 +513,6 @@ const composerCopy = {
     addImagesLabel: "Open recent photos",
     sendLabel: "Send to ContactFlow Agent",
     chooseModel: "Choose model",
-    choosePermission: "Choose permission mode",
     previewImageHint: "Open a full-size preview",
     stopLabel: "Stop analyzing",
     queueLabel: "Queue message",
