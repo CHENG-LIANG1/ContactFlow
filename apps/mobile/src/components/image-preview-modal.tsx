@@ -1,7 +1,6 @@
 import { Image } from "expo-image";
 import { X } from "lucide-react-native";
-import { useState } from "react";
-import { Modal, StyleSheet } from "react-native";
+import { Dimensions, Modal, StyleSheet } from "react-native";
 
 import { Box as View } from "@/components/ui/box";
 import { Pressable } from "@/components/ui/pressable";
@@ -14,19 +13,12 @@ type ImagePreviewModalProps = {
   uri: string | null;
 };
 
-/** Full-screen preview: the image keeps its aspect ratio, close sits right below it. */
+/** Full-screen preview: the image letterboxes inside a fixed box, close sits below it. */
 export function ImagePreviewModal({
   language,
   onClose,
   uri,
 }: ImagePreviewModalProps) {
-  const [loaded, setLoaded] = useState<{
-    uri: string;
-    height: number;
-    width: number;
-  } | null>(null);
-  const size = loaded && loaded.uri === uri ? loaded : null;
-
   return (
     <Modal
       animationType="fade"
@@ -41,18 +33,8 @@ export function ImagePreviewModal({
               language === "zh" ? "查看图片" : "View image"
             }
             contentFit="contain"
-            onLoad={(event) =>
-              setLoaded({
-                height: event.source.height,
-                uri,
-                width: event.source.width,
-              })
-            }
             source={uri}
-            style={[
-              styles.image,
-              size ? { aspectRatio: size.width / size.height } : null,
-            ]}
+            style={styles.image}
           />
         ) : null}
         <Pressable
@@ -78,8 +60,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.hero,
   },
   image: {
-    width: "100%",
-    maxHeight: "68%",
+    // A definite pixel box so the image is visible the moment the modal
+    // opens, instead of collapsing to zero height until a load event
+    // provides an aspect ratio.
+    width: Dimensions.get("window").width - spacing.lg * 2,
+    height: Dimensions.get("window").height * 0.62,
   },
   close: {
     marginTop: spacing.xl,

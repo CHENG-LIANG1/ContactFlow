@@ -342,16 +342,6 @@ export function ActionCard({
           <Text style={styles.kicker}>{meta.label}</Text>
           <Text style={styles.title}>{meta.title}</Text>
         </View>
-        <View style={styles.confidence}>
-          <View style={styles.confidenceDot} />
-          <Text style={styles.confidenceText}>
-            {action.confidence === "high"
-              ? copy.high
-              : action.confidence === "medium"
-                ? copy.medium
-                : copy.low}
-          </Text>
-        </View>
       </View>
 
       <View style={styles.fields}>
@@ -570,9 +560,6 @@ const actionCopy = {
     cancel: "取消",
     confirm: "确认并执行",
     run: "确认执行",
-    high: "高",
-    medium: "中",
-    low: "低",
     executing: "正在写入系统…",
     completed: "已确认完成",
     viewInCalendar: "在日历中查看",
@@ -614,9 +601,6 @@ const actionCopy = {
     cancel: "Cancel",
     confirm: "Confirm and run",
     run: "Confirm & run",
-    high: "High",
-    medium: "Medium",
-    low: "Low",
     executing: "Writing to system…",
     completed: "Completed",
     viewInCalendar: "View in Calendar",
@@ -670,18 +654,6 @@ const styles = StyleSheet.create({
     fontSize: typeScale.body,
     lineHeight: 22,
     marginTop: 3,
-  },
-  confidence: { flexDirection: "row", alignItems: "center", gap: 5 },
-  confidenceDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: palette.success,
-  },
-  confidenceText: {
-    color: palette.smoke,
-    fontFamily: fonts.body,
-    fontSize: typeScale.caption,
   },
   fields: {
     marginTop: spacing.md,
