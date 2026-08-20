@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Box as View } from "@/components/ui/box";
 import { Pressable } from "@/components/ui/pressable";
-import { Spinner } from "@/components/ui/spinner";
+import { ThinkingDots } from "@/components/thinking-dots";
 import { Text } from "@/components/ui/text";
 import {
   fonts,
@@ -204,7 +204,7 @@ export function PhotoLibraryPicker({
           </Pressable>
           {loading ? (
             <View style={styles.stateBox}>
-              <Spinner color={palette.mist} size="small" />
+              <ThinkingDots />
               <Text style={styles.stateText}>{copy.loading}</Text>
             </View>
           ) : permissionBlocked ? (

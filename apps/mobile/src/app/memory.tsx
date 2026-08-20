@@ -1,13 +1,16 @@
 import { useRouter } from "expo-router";
-import { CalendarDays, Database, Mail, Phone, Shield, Trash2 } from "lucide-react-native";
+import { CalendarDays, Database, Mail, Phone, Shield } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Alert, StyleSheet } from "react-native";
+import { StyleSheet } from "react-native";
 
 import { RelationshipGraph } from "@/components/relationship-graph";
+import {
+  ProfileEditorModal,
+  ProfileSummaryCard,
+} from "@/components/profile-editor";
 import { Screen, SectionHeading } from "@/components/screen";
 import { Box as View } from "@/components/ui/box";
 import { Card } from "@/components/ui/card";
-import { Pressable } from "@/components/ui/pressable";
 import { Text } from "@/components/ui/text";
 import { fonts, iconSize, palette, radius, spacing, typeScale } from "@/constants/theme";
 import { buildRelationshipContacts } from "@/domain/relationship-memory";
@@ -19,8 +22,9 @@ export default function MemoryScreen() {
   const history = useContactFlow((state) => state.history);
   const chatSessions = useContactFlow((state) => state.chatSessions);
   const language = useContactFlow((state) => state.language);
-  const deleteContactMemory = useContactFlow((state) => state.deleteContactMemory);
+  const profile = useContactFlow((state) => state.profile);
   const [selectedId, setSelectedId] = useState<string>();
+  const [editingProfile, setEditingProfile] = useState(false);
   const copy = memoryCopy[language];
   const contacts = useMemo(
     () => buildRelationshipContacts({ chatSessions, history, memories }),
@@ -31,21 +35,6 @@ export default function MemoryScreen() {
     (total, contact) => total + contact.meetings.length,
     0,
   );
-
-  const removeSelectedContact = () => {
-    if (!selectedContact) return;
-    Alert.alert(copy.deleteTitle(selectedContact.name), copy.deleteBody, [
-      { text: copy.cancel, style: "cancel" },
-      {
-        text: copy.delete,
-        style: "destructive",
-        onPress: () => {
-          deleteContactMemory(selectedContact.name);
-          setSelectedId(undefined);
-        },
-      },
-    ]);
-  };
 
   return (
     <Screen
@@ -67,7 +56,7 @@ export default function MemoryScreen() {
           language={language}
           onSelect={setSelectedId}
           onSelectRoot={() => setSelectedId(undefined)}
-          profile={{ name: "Ray" }}
+          profile={profile}
           selectedId={selectedId}
         />
       </View>
@@ -122,18 +111,6 @@ export default function MemoryScreen() {
             {!selectedContact.phone && !selectedContact.email ? (
               <Text style={styles.missingContact}>{copy.noContactDetails}</Text>
             ) : null}
-            <Pressable
-              accessibilityLabel={copy.deleteContact(selectedContact.name)}
-              accessibilityRole="button"
-              onPress={removeSelectedContact}
-              style={({ pressed }) => [
-                styles.deleteContactButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Trash2 color={palette.danger} size={iconSize.small} strokeWidth={1.7} />
-              <Text style={styles.deleteContactText}>{copy.deleteContact(selectedContact.name)}</Text>
-            </Pressable>
           </Card>
         </View>
       ) : null}
@@ -187,6 +164,23 @@ export default function MemoryScreen() {
           </View>
         </View>
       ) : null}
+
+      {!selectedContact ? (
+        <View style={styles.section}>
+          <SectionHeading label={copy.profileSection} />
+          <ProfileSummaryCard
+            language={language}
+            onPress={() => setEditingProfile(true)}
+          />
+          <Text style={styles.profileHint}>{copy.profileHint}</Text>
+        </View>
+      ) : null}
+
+      <ProfileEditorModal
+        language={language}
+        onClose={() => setEditingProfile(false)}
+        visible={editingProfile}
+      />
     </Screen>
   );
 }
@@ -225,11 +219,6 @@ const memoryCopy = {
   zh: {
     title: "记忆",
     back: "返回对话",
-    cancel: "取消",
-    delete: "删除",
-    deleteTitle: (name: string) => `删除 ${name} 的记忆？`,
-    deleteBody: "只删除这个联系人的本地记忆和活动。不会删除聊天记录、系统通讯录或日历对象。",
-    deleteContact: (name: string) => `删除 ${name} 的记忆`,
     promise: "只展示你确认并执行成功的联系人事实与活动。",
     mapSection: "关系图",
     contactSection: "联系人信息",
@@ -249,16 +238,13 @@ const memoryCopy = {
     noMeetings: "还没有会议活动",
     noMeetingsBody: "为这个联系人确认一次会议后，活动会出现在这里。",
     selectionHint: "点击联系人节点，查看资料和最近活动。",
+    profileSection: "我的信息",
+    profileHint: "点按卡片即可编辑昵称、简介和头像。",
     factCount: (count: number) => `${count} 条记忆`,
   },
   en: {
     title: "Memory",
     back: "Back to chat",
-    cancel: "Cancel",
-    delete: "Delete",
-    deleteTitle: (name: string) => `Delete ${name}'s memory?`,
-    deleteBody: "This only removes this contact's local memory and activity. Chats, Contacts, and Calendar entries remain.",
-    deleteContact: (name: string) => `Delete ${name}'s memory`,
     promise: "Only contact facts and activities you confirmed and completed appear here.",
     mapSection: "RELATIONSHIP MAP",
     contactSection: "CONTACT DETAILS",
@@ -278,6 +264,8 @@ const memoryCopy = {
     noMeetings: "No meeting activity yet",
     noMeetingsBody: "Confirm a meeting for this contact and it will appear here.",
     selectionHint: "Tap a contact node to view details and recent activity.",
+    profileSection: "MY PROFILE",
+    profileHint: "Tap the card to edit your name, bio, and photo.",
     factCount: (count: number) => `${count} ${count === 1 ? "memory" : "memories"}`,
   },
 } as const;
@@ -306,6 +294,12 @@ const styles = StyleSheet.create({
   },
   section: { gap: spacing.md },
   selectionHint: {
+    color: palette.smoke,
+    fontFamily: fonts.body,
+    fontSize: typeScale.caption,
+    textAlign: "center",
+  },
+  profileHint: {
     color: palette.smoke,
     fontFamily: fonts.body,
     fontSize: typeScale.caption,
@@ -367,18 +361,25 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingBottom: spacing.lg,
   },
-  contactIdentity: { flex: 1 },
-  contactName: { color: palette.paper, fontFamily: fonts.display, fontSize: 24 },
+  contactIdentity: { flex: 1, minWidth: 0 },
+  contactName: {
+    color: palette.paper,
+    fontFamily: fonts.display,
+    fontSize: 24,
+    lineHeight: 30,
+  },
   contactRole: {
     color: palette.smoke,
     fontFamily: fonts.body,
     fontSize: typeScale.label,
+    lineHeight: 20,
     marginTop: spacing.xs,
   },
   factCount: {
     color: palette.accent,
     fontFamily: fonts.utility,
     fontSize: typeScale.caption,
+    lineHeight: 16,
     marginTop: spacing.xs,
   },
   fieldRow: {
@@ -405,22 +406,6 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: palette.lineSoft,
     paddingTop: spacing.lg,
-  },
-  deleteContactButton: {
-    minHeight: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: palette.lineSoft,
-    marginTop: spacing.sm,
-    paddingTop: spacing.md,
-  },
-  deleteContactText: {
-    color: palette.danger,
-    fontFamily: fonts.bodyMedium,
-    fontSize: typeScale.label,
   },
   pressed: { opacity: 0.58 },
   activityCard: {

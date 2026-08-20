@@ -10,7 +10,7 @@ import {
 } from "@/components/settings-list";
 import { Box as View } from "@/components/ui/box";
 import { Text } from "@/components/ui/text";
-import { fonts, palette, spacing, typeScale } from "@/constants/theme";
+import { fonts, hues, palette, spacing, typeScale } from "@/constants/theme";
 import { useContactFlow } from "@/store/use-contactflow";
 
 export default function SettingsScreen() {
@@ -34,6 +34,8 @@ export default function SettingsScreen() {
       <SettingsGroup label={copy.preferences}>
         <SettingsRow
           icon={Languages}
+          iconBackground={hues.blue.background}
+          iconColor={hues.blue.foreground}
           onPress={() => router.push("/settings-language")}
           title={copy.language}
           value={language === "zh" ? "简体中文" : "English"}
@@ -41,7 +43,8 @@ export default function SettingsScreen() {
         <SettingsDivider />
         <SettingsRow
           icon={Palette}
-          iconColor={palette.accent}
+          iconBackground={hues.violet.background}
+          iconColor={hues.violet.foreground}
           onPress={() => router.push("/settings-theme")}
           title={copy.theme}
           value={themeMode === "light" ? copy.light : copy.dark}
@@ -57,7 +60,8 @@ export default function SettingsScreen() {
         <SettingsRow
           detail={copy.modelsHint}
           icon={Bot}
-          iconColor={palette.accent}
+          iconBackground={hues.green.background}
+          iconColor={hues.green.foreground}
           onPress={() => router.push("/settings-models")}
           title={copy.models}
           value={`${modelConfigs.length} ${copy.modelsCount}`}
@@ -68,6 +72,8 @@ export default function SettingsScreen() {
         <SettingsRow
           detail={copy.cacheHint}
           icon={HardDrive}
+          iconBackground={hues.orange.background}
+          iconColor={hues.orange.foreground}
           onPress={() => router.push("/settings-cache")}
           title={copy.cache}
           value={`${sessions.length} ${copy.conversations} · ${imageCount} ${copy.images}`}

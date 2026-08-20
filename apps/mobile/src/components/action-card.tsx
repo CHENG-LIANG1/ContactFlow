@@ -1,5 +1,7 @@
 import { DateTimePicker } from "@expo/ui/community/datetime-picker";
+import { presentFormAsync } from "expo-contacts/legacy";
 import {
+  CalendarDays,
   CalendarPlus,
   Check,
   ContactRound,
@@ -9,6 +11,7 @@ import {
 import { useState } from "react";
 import {
   Alert,
+  Linking,
   StyleSheet,
   useColorScheme,
   type ColorValue,
@@ -234,6 +237,38 @@ export function ActionCard({
     );
   };
 
+  const openCalendarDay = async () => {
+    if (action.type !== "create_meeting") return;
+    // calshow: opens Calendar.app at the given absolute time.
+    const seconds = Math.floor(
+      (Date.parse(action.payload.startAt) - Date.UTC(2001, 0, 1)) / 1000,
+    );
+    try {
+      await Linking.openURL(`calshow:${seconds}`);
+    } catch {
+      Alert.alert(copy.viewError, copy.viewErrorBody);
+    }
+  };
+
+  const openContactCard = async () => {
+    if (!action.nativeObjectId) return;
+    try {
+      await presentFormAsync(action.nativeObjectId);
+    } catch {
+      Alert.alert(copy.viewError, copy.viewErrorBody);
+    }
+  };
+
+  const viewAction = (() => {
+    if (action.type === "create_meeting") {
+      return { label: copy.viewInCalendar, open: openCalendarDay };
+    }
+    if (action.nativeObjectId) {
+      return { label: copy.viewContact, open: openContactCard };
+    }
+    return null;
+  })();
+
   return (
     <Card
       style={[
@@ -296,7 +331,7 @@ export function ActionCard({
             ) : (field.editable || field.key === "name") &&
             isEditing &&
             !readOnly ? (
-              <Input className="h-10 flex-1" style={styles.inputShell}>
+              <Input className="h-9 flex-1" style={styles.inputShell}>
                 <InputField
                   accessibilityLabel={`${meta.title}${field.label}`}
                   maxFontSizeMultiplier={1.35}
@@ -320,21 +355,38 @@ export function ActionCard({
       {action.error ? <Text style={styles.error}>{action.error}</Text> : null}
 
       <View style={styles.actions}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${isEditing ? copy.doneEditing : copy.edit} ${meta.title}`}
-          disabled={readOnly}
-          onPress={() => setIsEditing((current) => !current)}
-          style={[
-            styles.actionButton,
-            styles.editButton,
-            readOnly && styles.buttonDisabled,
-          ]}
-        >
-          <Text style={styles.editText}>
-            {isEditing ? copy.doneEditing : copy.edit}
-          </Text>
-        </Pressable>
+        {action.status === "succeeded" && viewAction ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={viewAction.label}
+            onPress={() => void viewAction.open()}
+            style={[styles.actionButton, styles.editButton]}
+          >
+            <ViewActionIcon
+              color={palette.mist}
+              size={iconSize.small}
+              strokeWidth={1.8}
+              type={action.type}
+            />
+            <Text style={styles.editText}>{viewAction.label}</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${isEditing ? copy.doneEditing : copy.edit} ${meta.title}`}
+            disabled={readOnly}
+            onPress={() => setIsEditing((current) => !current)}
+            style={[
+              styles.actionButton,
+              styles.editButton,
+              readOnly && styles.buttonDisabled,
+            ]}
+          >
+            <Text style={styles.editText}>
+              {isEditing ? copy.doneEditing : copy.edit}
+            </Text>
+          </Pressable>
+        )}
 
         <Pressable
           accessibilityRole="button"
@@ -371,6 +423,21 @@ export function ActionCard({
   );
 }
 
+function ViewActionIcon({
+  color,
+  size,
+  strokeWidth,
+  type,
+}: {
+  color: ColorValue;
+  size: number;
+  strokeWidth: number;
+  type: ActionProposal["type"];
+}) {
+  const Icon = type === "create_meeting" ? CalendarDays : ContactRound;
+  return <Icon color={color} size={size} strokeWidth={strokeWidth} />;
+}
+
 const actionCopy = {
   zh: {
     meeting: "会议",
@@ -403,6 +470,10 @@ const actionCopy = {
     low: "低",
     executing: "正在写入系统…",
     completed: "已确认完成",
+    viewInCalendar: "在日历中查看",
+    viewContact: "查看联系人",
+    viewError: "无法打开系统应用",
+    viewErrorBody: "请确认设备上已安装并配置日历或通讯录。",
     retry: "检查后重试",
     edit: "编辑",
     doneEditing: "保存修改",
@@ -438,6 +509,10 @@ const actionCopy = {
     low: "Low",
     executing: "Writing to system…",
     completed: "Completed",
+    viewInCalendar: "View in Calendar",
+    viewContact: "View contact",
+    viewError: "Cannot open the system app",
+    viewErrorBody: "Make sure Calendar or Contacts is available on this device.",
     retry: "Review and retry",
     edit: "Edit",
     doneEditing: "Save edits",
@@ -471,12 +546,14 @@ const styles = StyleSheet.create({
     color: palette.smoke,
     fontFamily: fonts.utility,
     fontSize: typeScale.caption,
+    lineHeight: 16,
     letterSpacing: 0.35,
   },
   title: {
     color: palette.paper,
     fontFamily: fonts.bodyMedium,
     fontSize: typeScale.body,
+    lineHeight: 22,
     marginTop: 3,
   },
   confidence: { flexDirection: "row", alignItems: "center", gap: 5 },
@@ -524,9 +601,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   inputShell: {
-    borderColor: palette.line,
+    borderColor: palette.lineSoft,
     backgroundColor: palette.graphite,
-    borderRadius: 12,
+    borderRadius: 10,
     paddingHorizontal: spacing.sm,
   },
   fieldInput: {

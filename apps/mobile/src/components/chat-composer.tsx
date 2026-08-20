@@ -1,12 +1,9 @@
 import { Image } from "expo-image";
 import {
-  AssistantRuntimeProvider,
-  type ChatModelAdapter,
+  AttachmentPrimitive,
   ComposerPrimitive,
-  ThreadPrimitive,
   useAui,
   useAuiState,
-  useLocalRuntime,
 } from "@assistant-ui/react-native";
 import {
   ArrowUp,
@@ -15,24 +12,23 @@ import {
   ChevronRight,
   ContactRound,
   Plus,
+  ShieldCheck,
+  Square,
   X,
 } from "lucide-react-native";
 import {
   type ComponentRef,
-  type MutableRefObject,
-  useEffect,
-  useMemo,
+  createContext,
+  useContext,
   useRef,
   useState,
 } from "react";
 import {
   Alert,
   Image as NativeImage,
-  Modal,
   Pressable as NativePressable,
   ScrollView,
   StyleSheet,
-  type ColorValue,
 } from "react-native";
 import Animated, {
   LinearTransition,
@@ -43,12 +39,14 @@ import {
   PhotoLibraryPicker,
   type PhotoLibraryItem,
 } from "@/components/photo-library-picker";
+import { ImagePreviewModal } from "@/components/image-preview-modal";
 import type { ComposerMenuAnchor } from "@/components/model-switcher";
 import { Box as View } from "@/components/ui/box";
 import { Pressable } from "@/components/ui/pressable";
 import { Text } from "@/components/ui/text";
 import {
   fonts,
+  hues,
   iconSize,
   motion,
   palette,
@@ -62,27 +60,16 @@ import {
   type AgentPreset,
   type AgentPresetId,
 } from "@/domain/agent-presets";
+import { permissionLabel } from "@/components/permission-switcher";
 import type { AgentPermissionMode, AppLanguage } from "@/domain/preferences";
 
 type ChatComposerProps = {
-  analyzing: boolean;
-  accent: ColorValue;
   language: AppLanguage;
   modelName?: string;
   onModelPress?: (anchor: ComposerMenuAnchor) => void;
   onPermissionPress?: (anchor: ComposerMenuAnchor) => void;
-  onSend: (note: string, attachments: ChatAttachment[]) => Promise<void> | void;
-  permissionMode: AgentPermissionMode;
-};
-
-type ComposerBoxProps = {
-  accent: ColorValue;
-  analyzing: boolean;
-  attachments: ChatAttachment[];
-  language: AppLanguage;
-  onAttachPress?: () => void;
-  onRemoveAttachment: (index: number) => void;
-  photoTrayOpen?: boolean;
+  onQueue?: (note: string, attachments: ChatAttachment[]) => void;
+  permissionMode?: AgentPermissionMode;
 };
 
 const MAX_ATTACHMENTS = 9;
@@ -95,135 +82,78 @@ const PRESET_IMAGE_MODULES: Record<AgentPresetId, number> = {
   update_contact: require("../../assets/e2e/update-contact.jpg"),
 };
 
-function textFromLastUserMessage(messages: Parameters<ChatModelAdapter["run"]>[0]["messages"]) {
-  const message = [...messages].reverse().find((item) => item.role === "user");
-  if (!message) return "";
-  return message.content
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("\n")
-    .trim();
+function imageUriFromContent(
+  content: readonly { type: string; image?: string }[] | undefined,
+) {
+  const imagePart = content?.find((part) => part.type === "image");
+  return imagePart?.image;
 }
 
-/** Capture, context, and send stay inside one familiar chat composer. */
+/** Lets attachment thumbs open the preview modal owned by the composer box. */
+const PreviewContext = createContext<(uri: string) => void>(() => undefined);
+
+/**
+ * Capture, context, and send stay inside one familiar chat composer, wired to
+ * the screen's assistant-ui runtime (text, attachments, send, cancel).
+ */
 export function ChatComposer({
-  accent,
-  analyzing,
   language,
   modelName,
   onModelPress,
   onPermissionPress,
-  onSend,
-  permissionMode,
+  onQueue,
+  permissionMode = "ask",
 }: ChatComposerProps) {
-  const onSendRef = useRef(onSend);
-  const attachmentsRef = useRef<ChatAttachment[]>([]);
-  const resetComposerUiRef = useRef<() => void>(() => undefined);
-  useEffect(() => {
-    onSendRef.current = onSend;
-  }, [onSend]);
-
-  const adapter = useMemo<ChatModelAdapter>(
-    () => ({
-      async run({ messages }) {
-        const note = textFromLastUserMessage(messages);
-        const attachments = attachmentsRef.current;
-        resetComposerUiRef.current();
-        await onSendRef.current(note, attachments);
-        return { content: [] };
-      },
-    }),
-    [],
-  );
-  const runtime = useLocalRuntime(adapter);
-
-  return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Root>
-        <ChatComposerSurface
-          accent={accent}
-          analyzing={analyzing}
-          attachmentsRef={attachmentsRef}
-          language={language}
-          modelName={modelName}
-          onModelPress={onModelPress}
-          onPermissionPress={onPermissionPress}
-          permissionMode={permissionMode}
-          resetComposerUiRef={resetComposerUiRef}
-        />
-      </ThreadPrimitive.Root>
-    </AssistantRuntimeProvider>
-  );
-}
-
-function ChatComposerSurface({
-  accent,
-  analyzing,
-  attachmentsRef,
-  language,
-  modelName,
-  onModelPress,
-  resetComposerUiRef,
-}: Omit<ChatComposerProps, "onSend"> & {
-  attachmentsRef: MutableRefObject<ChatAttachment[]>;
-  resetComposerUiRef: MutableRefObject<() => void>;
-}) {
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [photoTrayOpen, setPhotoTrayOpen] = useState(false);
   const [galleryExpanded, setGalleryExpanded] = useState(false);
-  const composerText = useAuiState((state) => state.composer.text);
-  const aui = useAui();
   const modelTriggerRef = useRef<ComponentRef<typeof NativePressable>>(null);
+  const permissionTriggerRef = useRef<ComponentRef<typeof NativePressable>>(null);
+  const composerText = useAuiState((state) => state.composer.text);
+  const attachments = useAuiState((state) => state.composer.attachments);
+  const running = useAuiState((state) => state.thread.isRunning);
+  const aui = useAui();
   const copy = composerCopy[language];
 
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments, attachmentsRef]);
-
-  useEffect(() => {
-    resetComposerUiRef.current = () => {
-      setAttachments([]);
-      setPhotoTrayOpen(false);
-      setGalleryExpanded(false);
-    };
-    return () => {
-      resetComposerUiRef.current = () => undefined;
-    };
-  }, [resetComposerUiRef]);
+  const closeTrays = () => {
+    setPhotoTrayOpen(false);
+    setGalleryExpanded(false);
+  };
 
   const selectPreset = (preset: AgentPreset) => {
     const uri = NativeImage.resolveAssetSource(
       PRESET_IMAGE_MODULES[preset.id],
     ).uri;
-    setAttachments([{ uri, label: preset.imageLabel, isDemo: false }]);
-    setPhotoTrayOpen(false);
-    setGalleryExpanded(false);
+    void aui.composer.clearAttachments();
+    void aui.composer.addAttachment({
+      id: `preset-${preset.id}`,
+      type: "image",
+      name: preset.imageLabel,
+      contentType: "image/jpeg",
+      content: [{ type: "image", image: uri }],
+    });
+    aui.composer.setText(preset.instruction[language]);
+    closeTrays();
   };
 
   const togglePhoto = (photo: PhotoLibraryItem) => {
+    const id = `photo-${photo.uri}`;
+    const existing = attachments.find((attachment) => attachment.id === id);
+    if (existing) {
+    void aui.composer.attachment({ id: existing.id }).remove();
+      return;
+    }
+    if (attachments.length >= MAX_ATTACHMENTS) {
+      Alert.alert(copy.limitTitle, copy.limitBody);
+      return;
+    }
     if (!composerText.trim()) aui.composer.setText(copy.imageOnlyPrompt);
-    setAttachments((current) => {
-      const selectedIndex = current.findIndex(
-        (attachment) => attachment.uri === photo.uri,
-      );
-      if (selectedIndex >= 0) {
-        return current.filter((_, index) => index !== selectedIndex);
-      }
-      if (current.length >= MAX_ATTACHMENTS) {
-        Alert.alert(copy.limitTitle, copy.limitBody);
-        return current;
-      }
-      return [
-        ...current,
-        { uri: photo.uri, label: photo.label, isDemo: false },
-      ];
+    void aui.composer.addAttachment({
+      id,
+      type: "image",
+      name: photo.label,
+      contentType: "image/jpeg",
+      content: [{ type: "image", image: photo.uri }],
     });
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments((current) =>
-      current.filter((_, itemIndex) => itemIndex !== index),
-    );
   };
 
   const togglePhotoTray = () => {
@@ -231,14 +161,27 @@ function ChatComposerSurface({
     if (photoTrayOpen) setGalleryExpanded(false);
   };
 
-  const composerBox = (
-    <ComposerBox
-      accent={accent}
-      analyzing={analyzing}
-      attachments={attachments}
-      language={language}
-      onRemoveAttachment={removeAttachment}
-    />
+  const queueCurrentInput = () => {
+    const note = composerText.trim();
+    if (!note && attachments.length === 0) return;
+    onQueue?.(
+      note,
+      attachments.map((attachment) => ({
+        isDemo: false,
+        label: attachment.name,
+        uri: imageUriFromContent(attachment.content),
+      })),
+    );
+    void aui.composer.reset();
+    closeTrays();
+  };
+
+  const selectedAttachments: ChatAttachment[] = attachments.map(
+    (attachment) => ({
+      isDemo: false,
+      label: attachment.name,
+      uri: imageUriFromContent(attachment.content),
+    }),
   );
 
   return (
@@ -282,13 +225,39 @@ function ChatComposerSurface({
               </View>
             </NativePressable>
           ) : null}
+          {onPermissionPress ? (
+            <NativePressable
+              accessibilityLabel={copy.choosePermission}
+              accessibilityRole="button"
+              hitSlop={4}
+              onPress={() =>
+                permissionTriggerRef.current?.measureInWindow(
+                  (x, y, width, height) =>
+                    onPermissionPress({ height, width, x, y }),
+                )
+              }
+              ref={permissionTriggerRef}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <View style={[styles.suggestion, styles.presetSuggestion]}>
+                <ShieldCheck
+                  color={permissionMode === "full" ? hues.orange.foreground : palette.mist}
+                  size={iconSize.small}
+                  strokeWidth={1.7}
+                />
+                <Text style={styles.suggestionText}>
+                  {permissionLabel(language, permissionMode)}
+                </Text>
+              </View>
+            </NativePressable>
+          ) : null}
           {AGENT_PRESETS.map((preset) => (
             <PresetSuggestion
-              analyzing={analyzing}
               key={preset.id}
               language={language}
               onSelect={selectPreset}
               preset={preset}
+              running={running}
             />
           ))}
         </ScrollView>
@@ -301,23 +270,24 @@ function ChatComposerSurface({
         style={styles.composerCluster}
       >
         <ComposerBox
-          accent={accent}
-          analyzing={analyzing}
-          attachments={attachments}
           language={language}
           onAttachPress={togglePhotoTray}
-          onRemoveAttachment={removeAttachment}
+          onQueue={queueCurrentInput}
           photoTrayOpen={photoTrayOpen}
         />
 
         <PhotoLibraryPicker
           expanded={galleryExpanded}
-          footer={<View style={styles.galleryComposerDock}>{composerBox}</View>}
+          footer={
+            <View style={styles.galleryComposerDock}>
+              <ComposerBox language={language} onQueue={queueCurrentInput} />
+            </View>
+          }
           language={language}
           onExpandedChange={setGalleryExpanded}
           onTogglePhoto={togglePhoto}
           open={photoTrayOpen}
-          selected={attachments}
+          selected={selectedAttachments}
         />
       </Animated.View>
     </View>
@@ -325,18 +295,17 @@ function ChatComposerSurface({
 }
 
 function PresetSuggestion({
-  analyzing,
   language,
   onSelect,
   preset,
+  running,
 }: {
-  analyzing: boolean;
   language: AppLanguage;
   onSelect: (preset: AgentPreset) => void;
   preset: AgentPreset;
+  running: boolean;
 }) {
   const Icon = preset.id === "create_meeting" ? CalendarPlus : ContactRound;
-  const aui = useAui();
   return (
     <NativePressable
       accessibilityHint={
@@ -346,12 +315,9 @@ function PresetSuggestion({
       }
       accessibilityLabel={preset.label[language]}
       accessibilityRole="button"
-      disabled={analyzing}
+      disabled={running}
       hitSlop={4}
-      onPress={() => {
-        onSelect(preset);
-        aui.composer.setText(preset.instruction[language]);
-      }}
+      onPress={() => onSelect(preset)}
       style={({ pressed }) => pressed && styles.pressed}
     >
       <View style={[styles.suggestion, styles.presetSuggestion]}>
@@ -367,74 +333,43 @@ function PresetSuggestion({
 }
 
 function ComposerBox({
-  accent,
-  analyzing,
-  attachments,
   language,
   onAttachPress,
-  onRemoveAttachment,
+  onQueue,
   photoTrayOpen = false,
-}: ComposerBoxProps) {
+}: {
+  language: AppLanguage;
+  onAttachPress?: () => void;
+  onQueue?: () => void;
+  photoTrayOpen?: boolean;
+}) {
   const copy = composerCopy[language];
   const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const closePreview = () => setPreviewUri(null);
   const note = useAuiState((state) => state.composer.text);
-  const canSend =
-    !analyzing && (note.trim().length > 0 || attachments.length > 0);
+  const hasAttachments = useAuiState(
+    (state) => state.composer.attachments.length > 0,
+  );
+  const running = useAuiState((state) => state.thread.isRunning);
+  const hasInput = note.trim().length > 0 || hasAttachments;
 
   return (
-    <ComposerPrimitive.Root style={styles.composer}>
-      {attachments.length > 0 ? (
-        <View style={styles.attachmentTray}>
-          <ScrollView
-            contentContainerStyle={styles.attachments}
-            horizontal
-            keyboardShouldPersistTaps="handled"
-            showsHorizontalScrollIndicator={false}
-          >
-            {attachments.map((attachment, index) => (
-              <View key={`${attachment.uri ?? attachment.label}-${index}`}>
-                {attachment.uri ? (
-                  <Pressable
-                    accessibilityHint={copy.previewImageHint}
-                    accessibilityLabel={`${copy.previewImageLabel} ${index + 1}`}
-                    accessibilityRole="button"
-                    onPress={() => setPreviewUri(attachment.uri ?? null)}
-                    style={({ pressed }) => pressed && styles.thumbnailPressed}
-                  >
-                    <Image
-                      contentFit="cover"
-                      source={attachment.uri}
-                      style={styles.thumbnail}
-                    />
-                  </Pressable>
-                ) : (
-                  <View style={styles.demoThumbnail}>
-                    <View style={styles.demoLine} />
-                    <View style={[styles.demoLine, styles.demoLineShort]} />
-                  </View>
-                )}
-                <Pressable
-                  accessibilityLabel={
-                    language === "zh"
-                      ? `移除第 ${index + 1} 张图片`
-                      : `Remove image ${index + 1}`
-                  }
-                  accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={() => onRemoveAttachment(index)}
-                  style={styles.removeAttachment}
-                >
-                  <X
-                    color={palette.void}
-                    size={iconSize.tiny}
-                    strokeWidth={2.2}
-                  />
-                </Pressable>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      ) : null}
+    <PreviewContext.Provider value={setPreviewUri}>
+      <ComposerPrimitive.Root style={styles.composer}>
+        {hasAttachments ? (
+          <View style={styles.attachmentTray}>
+            <ScrollView
+              contentContainerStyle={styles.attachments}
+              horizontal
+              keyboardShouldPersistTaps="handled"
+              showsHorizontalScrollIndicator={false}
+            >
+              <ComposerPrimitive.Attachments
+                components={composerAttachmentComponents}
+              />
+            </ScrollView>
+          </View>
+        ) : null}
 
       <View style={styles.inputRow}>
         {onAttachPress ? (
@@ -480,58 +415,110 @@ function ComposerBox({
             submitMode="none"
           />
         </View>
-        <ComposerPrimitive.Send
-          accessibilityLabel={copy.sendLabel}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !canSend }}
-          disabled={!canSend}
-          hitSlop={4}
-          style={({ pressed }) =>
-            pressed && canSend ? styles.sendPressed : undefined
-          }
-        >
-          <View
-            style={[
-              styles.sendButton,
-              { backgroundColor: accent },
-              !canSend && styles.sendDisabled,
-            ]}
+        {running && !hasInput ? (
+          <ComposerPrimitive.Cancel
+            accessibilityLabel={copy.stopLabel}
+            accessibilityRole="button"
+            hitSlop={4}
+            style={({ pressed }) => pressed && styles.sendPressed}
           >
-            <ArrowUp
-              color={canSend ? palette.ink : palette.smoke}
-              size={iconSize.medium}
-              strokeWidth={2.4}
-            />
-          </View>
-        </ComposerPrimitive.Send>
+            <View style={[styles.sendButton, styles.stopButton]}>
+              <Square
+                color={hues.rose.foreground}
+                fill={hues.rose.foreground}
+                size={iconSize.small}
+                strokeWidth={2.2}
+              />
+            </View>
+          </ComposerPrimitive.Cancel>
+        ) : running && hasInput ? (
+          <Pressable
+            accessibilityLabel={copy.queueLabel}
+            accessibilityRole="button"
+            hitSlop={4}
+            onPress={onQueue}
+            style={({ pressed }) => pressed && styles.sendPressed}
+          >
+            <View style={[styles.sendButton, styles.accentSendButton]}>
+              <ArrowUp
+                color={palette.ink}
+                size={iconSize.medium}
+                strokeWidth={2.4}
+              />
+            </View>
+          </Pressable>
+        ) : (
+          <ComposerPrimitive.Send
+            accessibilityLabel={copy.sendLabel}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !hasInput }}
+            disabled={!hasInput}
+            hitSlop={4}
+            style={({ pressed }) =>
+              pressed && hasInput ? styles.sendPressed : undefined
+            }
+          >
+            <View
+              style={[
+                styles.sendButton,
+                styles.accentSendButton,
+                !hasInput && styles.sendDisabled,
+              ]}
+            >
+              <ArrowUp
+                color={hasInput ? palette.ink : palette.smoke}
+                size={iconSize.medium}
+                strokeWidth={2.4}
+              />
+            </View>
+          </ComposerPrimitive.Send>
+        )}
       </View>
 
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setPreviewUri(null)}
-        transparent
-        visible={Boolean(previewUri)}
-      >
-        <View style={styles.previewBackdrop}>
-          <Pressable
-            accessibilityLabel={copy.closePreview}
-            accessibilityRole="button"
-            onPress={() => setPreviewUri(null)}
-            style={styles.previewClose}
-          >
-            <X color="#FFFFFF" size={iconSize.large} strokeWidth={2} />
-          </Pressable>
-          {previewUri ? (
-            <Image
-              accessibilityLabel={copy.previewImageLabel}
-              contentFit="contain"
-              source={previewUri}
-              style={styles.previewImage}
-            />
-          ) : null}
+      <ImagePreviewModal
+        language={language}
+        onClose={closePreview}
+        uri={previewUri}
+      />
+        </ComposerPrimitive.Root>
+    </PreviewContext.Provider>
+  );
+}
+
+const composerAttachmentComponents = { Attachment: ComposerAttachmentItem };
+
+function ComposerAttachmentItem() {
+  const onPreview = useContext(PreviewContext);
+  const attachment = useAuiState((state) => state.attachment);
+  const uri = imageUriFromContent(attachment.content);
+
+  return (
+    <AttachmentPrimitive.Root style={styles.attachmentItem}>
+      {uri ? (
+        <Pressable
+          accessibilityHint={composerCopy.zh.previewImageHint}
+          accessibilityLabel={attachment.name}
+          accessibilityRole="button"
+          onPress={() => onPreview(uri)}
+          style={({ pressed }) => pressed && styles.thumbnailPressed}
+        >
+          <Image contentFit="cover" source={uri} style={styles.thumbnail} />
+        </Pressable>
+      ) : (
+        <View style={styles.demoThumbnail}>
+          <View style={styles.demoLine} />
+          <View style={[styles.demoLine, styles.demoLineShort]} />
         </View>
-      </Modal>
-    </ComposerPrimitive.Root>
+      )}
+      <AttachmentPrimitive.Remove
+        accessibilityLabel={attachment.name}
+        accessibilityRole="button"
+        hitSlop={8}
+        style={styles.removeAttachment}
+      >
+        <X color={palette.void} size={iconSize.tiny} strokeWidth={2.2} />
+      </AttachmentPrimitive.Remove>
+    </AttachmentPrimitive.Root>
   );
 }
 
@@ -545,9 +532,10 @@ const composerCopy = {
     addImagesLabel: "打开最近照片",
     sendLabel: "发送给 ContactFlow Agent",
     chooseModel: "选择模型",
-    previewImageLabel: "查看图片",
+    choosePermission: "选择权限模式",
     previewImageHint: "打开大图预览",
-    closePreview: "关闭图片预览",
+    stopLabel: "停止分析",
+    queueLabel: "排队等待发送",
   },
   en: {
     limitTitle: "Up to 9 images",
@@ -559,9 +547,10 @@ const composerCopy = {
     addImagesLabel: "Open recent photos",
     sendLabel: "Send to ContactFlow Agent",
     chooseModel: "Choose model",
-    previewImageLabel: "View image",
+    choosePermission: "Choose permission mode",
     previewImageHint: "Open a full-size preview",
-    closePreview: "Close image preview",
+    stopLabel: "Stop analyzing",
+    queueLabel: "Queue message",
   },
 } as const;
 
@@ -615,6 +604,7 @@ const styles = StyleSheet.create({
     paddingTop: 6,
   },
   thumbnail: { width: 62, height: 62, borderRadius: 14 },
+  attachmentItem: { width: 62, height: 62, alignSelf: "flex-start" },
   thumbnailPressed: { opacity: 0.78 },
   demoThumbnail: {
     width: 62,
@@ -640,27 +630,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: palette.graphite,
   },
-  previewBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(8, 11, 9, 0.94)",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.hero,
-  },
-  previewImage: { width: "100%", height: "86%" },
-  previewClose: {
-    position: "absolute",
-    right: spacing.lg,
-    top: spacing.hero,
-    zIndex: 2,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255, 255, 255, 0.14)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   input: {
     minHeight: INPUT_MIN_HEIGHT,
     maxHeight: INPUT_MAX_HEIGHT,
@@ -672,7 +641,7 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     textAlignVertical: "top",
   },
-  inputRow: { flexDirection: "row", alignItems: "flex-end", gap: spacing.xs },
+  inputRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   textareaWrap: { flex: 1, minWidth: 0 },
   attachButton: {
     width: 44,
@@ -690,9 +659,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.paper,
-    marginLeft: "auto",
   },
+  accentSendButton: { backgroundColor: palette.accent },
   sendDisabled: { backgroundColor: palette.graphite },
+  stopButton: { backgroundColor: hues.rose.background },
   galleryComposerDock: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,

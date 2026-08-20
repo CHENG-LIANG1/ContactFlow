@@ -8,6 +8,7 @@ import {
   SettingsGroup,
   SettingsRow,
 } from "@/components/settings-list";
+import { hues } from "@/constants/theme";
 import { useContactFlow } from "@/store/use-contactflow";
 
 export default function CacheSettingsScreen() {
@@ -37,12 +38,16 @@ export default function CacheSettingsScreen() {
       <SettingsGroup label={copy.usage}>
         <SettingsRow
           icon={MessageSquareText}
+          iconBackground={hues.teal.background}
+          iconColor={hues.teal.foreground}
           title={copy.conversations}
           value={String(sessions.length)}
         />
         <SettingsDivider />
         <SettingsRow
           icon={Images}
+          iconBackground={hues.rose.background}
+          iconColor={hues.rose.foreground}
           title={copy.images}
           value={String(imageCount)}
         />
@@ -53,6 +58,7 @@ export default function CacheSettingsScreen() {
           destructive
           detail={copy.hint}
           icon={Trash2}
+          iconBackground={hues.rose.background}
           onPress={clearCache}
           showsDisclosure={false}
           title={copy.clear}

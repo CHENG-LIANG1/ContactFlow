@@ -133,19 +133,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: palette.line,
+    borderBottomColor: palette.lineFaint,
     paddingBottom: spacing.sm,
   },
   sectionLabel: {
     color: palette.mist,
     fontFamily: fonts.utility,
     fontSize: typeScale.caption,
+    lineHeight: 17,
     letterSpacing: 1.1,
   },
   sectionCount: {
     color: palette.smoke,
     fontFamily: fonts.utility,
     fontSize: typeScale.caption,
+    lineHeight: 17,
   },
   pressed: { opacity: 0.55 },
 });

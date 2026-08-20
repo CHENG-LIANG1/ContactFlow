@@ -19,6 +19,8 @@ export type ChatSession = {
   isTitleEdited?: boolean;
   turn: ChatTurn;
   analysis?: AgentAnalysis;
+  /** Persisted failure text so a failed run survives session switches. */
+  analysisError?: string;
   analysisDurationMs?: number;
   updatedAt: string;
 };

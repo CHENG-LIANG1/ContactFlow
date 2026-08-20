@@ -106,19 +106,21 @@ export function PermissionSwitcher({
                       selected && styles.permissionRowSelected,
                     ]}
                   >
-                    <View style={styles.iconWrap}>
-                      <Icon
+                    {selected ? (
+                      <Check
                         color={
-                          selected
-                            ? option.id === "full"
-                              ? palette.warning
-                              : palette.accent
-                            : palette.mist
+                          option.id === "full" ? palette.warning : palette.accent
                         }
-                        size={iconSize.medium}
+                        size={iconSize.small}
+                        strokeWidth={2.2}
+                      />
+                    ) : (
+                      <Icon
+                        color={palette.mist}
+                        size={iconSize.small}
                         strokeWidth={1.7}
                       />
-                    </View>
+                    )}
                     <View style={styles.optionCopy}>
                       <Text
                         numberOfLines={1}
@@ -135,17 +137,6 @@ export function PermissionSwitcher({
                         {optionCopy.detail}
                       </Text>
                     </View>
-                    {selected ? (
-                      <Check
-                        color={
-                          option.id === "full"
-                            ? palette.warning
-                            : palette.accent
-                        }
-                        size={iconSize.medium}
-                        strokeWidth={2}
-                      />
-                    ) : null}
                   </View>
                 </Pressable>
               );
@@ -236,14 +227,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   permissionRowSelected: { backgroundColor: palette.graphite },
-  iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.void,
-  },
   optionCopy: { flex: 1, minWidth: 0 },
   optionTitle: {
     color: palette.paper,

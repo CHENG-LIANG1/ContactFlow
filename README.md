@@ -7,6 +7,7 @@ ContactFlow 是一个面向 iOS 的截图驱动联系人 agent 概念项目。�
 - [产品需求文档（PRD）](docs/PRD.md)
 - [React Native 技术方案](docs/TECHNICAL_DESIGN.md)
 - [iOS 应用源码](apps/mobile/src)
+- [仓库 Wiki](docs/REPO_WIKI.md)
 
 ## MVP 能力
 

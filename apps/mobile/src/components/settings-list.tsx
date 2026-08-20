@@ -32,7 +32,7 @@ export function SettingsGroup({
   );
 }
 
-export function SettingsDivider({ inset = 50 }: { inset?: number }) {
+export function SettingsDivider({ inset = 60 }: { inset?: number }) {
   return <View style={[styles.divider, { marginLeft: inset }]} />;
 }
 
@@ -42,6 +42,7 @@ export function SettingsRow({
   detail,
   icon: Icon,
   iconColor = palette.mist,
+  iconBackground,
   onPress,
   selected = false,
   showsDisclosure = true,
@@ -54,6 +55,7 @@ export function SettingsRow({
   detail?: string;
   icon?: LucideIcon;
   iconColor?: ColorValue;
+  iconBackground?: ColorValue;
   onPress?: () => void;
   selected?: boolean;
   showsDisclosure?: boolean;
@@ -71,10 +73,15 @@ export function SettingsRow({
     >
       <View style={styles.rowContent}>
         {Icon ? (
-          <View style={styles.iconWrap}>
+          <View
+            style={[
+              styles.iconWrap,
+              { backgroundColor: iconBackground ?? palette.graphite },
+            ]}
+          >
             <Icon
               color={destructive ? palette.danger : iconColor}
-              size={iconSize.small}
+              size={iconSize.medium}
               strokeWidth={1.8}
             />
           </View>
@@ -118,7 +125,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     padding: 0,
     gap: 0,
-    borderRadius: radius.md,
+    borderRadius: radius.input,
     backgroundColor: palette.ink,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: palette.lineSoft,
@@ -128,17 +135,17 @@ const styles = StyleSheet.create({
   },
   rowPressed: { backgroundColor: palette.graphite },
   rowContent: {
-    minHeight: 44,
+    minHeight: 60,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 6,
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
   },
   iconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.graphite,
@@ -168,6 +175,6 @@ const styles = StyleSheet.create({
   destructive: { color: palette.danger },
   divider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: palette.lineSoft,
+    backgroundColor: palette.lineFaint,
   },
 });

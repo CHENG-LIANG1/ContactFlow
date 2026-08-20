@@ -61,6 +61,7 @@ describe("relationship memory graph", () => {
         updatedAt: "2026-08-19T02:00:00.000Z",
         analysis: {
           actions: [confirmedUpdate, confirmedContact, confirmedMeeting, proposedOnly],
+          thinking: "整理了 Taylor 的信息。",
           contextSummary: "",
           notices: [],
           participantNames: ["Taylor"],

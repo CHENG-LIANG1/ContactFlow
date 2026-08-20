@@ -9,6 +9,7 @@ import {
 import {
   AgentRequestError,
   analyzeContext,
+  extractPartialThinking,
   generateInsights,
   requestStructuredOutput,
 } from "@/services/openai-compatible-agent";
@@ -36,6 +37,7 @@ const config: ModelConfig = {
 };
 
 const analysisResult = {
+  thinking: "看到了林澈确认下周二的会议。",
   contextSummary: "林澈确认了下周二的会议",
   notices: [],
   participantNames: ["林澈"],
@@ -319,5 +321,85 @@ describe("OpenAI-compatible agent adapter", () => {
         memories: [],
       }),
     ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it("extracts the in-progress thinking text from partial JSON", () => {
+    expect(extractPartialThinking('{"thinking": "你好')).toBe("你好");
+    expect(extractPartialThinking('{"thinking": "你好", "x": 1}')).toBe("你好");
+    expect(extractPartialThinking('{"thinking": "a\\nb')).toBe("a\nb");
+    expect(extractPartialThinking('{"other": 1}')).toBe("");
+  });
+
+  it("streams thinking tokens live and parses the final JSON", async () => {
+    const full = JSON.stringify(analysisResult);
+    const chunk = (content: string) =>
+      `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`;
+    const encoder = new TextEncoder();
+    const events = [
+      chunk(full.slice(0, 20)),
+      chunk(full.slice(20, 40)),
+      chunk(full.slice(40)),
+      "data: [DONE]\n\n",
+    ];
+    const fetchImpl = vi.fn(async () => ({
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const event of events) {
+            controller.enqueue(encoder.encode(event));
+          }
+          controller.close();
+        },
+      }),
+      ok: true,
+      status: 200,
+      text: async () => "",
+    }));
+    const streamed: string[] = [];
+
+    const result = await requestStructuredOutput({
+      apiKey: "secret",
+      config,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      jsonSchemaName: "probe",
+      maxAttempts: 1,
+      onStreamText: (text) => streamed.push(text),
+      schema: AnalysisResultSchema,
+      systemPrompt: "Return data.",
+      userContent: "hello",
+    });
+
+    expect(result.contextSummary).toBe("林澈确认了下周二的会议");
+    expect(streamed.length).toBeGreaterThan(1);
+    expect(streamed[0].length).toBeLessThan(streamed[streamed.length - 1].length);
+    expect(streamed[streamed.length - 1]).toBe("看到了林澈确认下周二的会议。");
+    const [, request] = fetchImpl.mock.calls[0] as unknown as [
+      RequestInfo | URL,
+      RequestInit,
+    ];
+    expect(JSON.parse(String(request?.body))).toMatchObject({ stream: true });
+  });
+
+  it("falls back to a classic request when streaming fails", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("stream unsupported"))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    const streamed: string[] = [];
+
+    await expect(
+      requestStructuredOutput({
+        apiKey: "secret",
+        config,
+        fetchImpl: fetchImpl as typeof fetch,
+        jsonSchemaName: "probe",
+        maxAttempts: 1,
+        onStreamText: (text) => streamed.push(text),
+        retryDelayMs: 0,
+        schema: z.strictObject({ ok: z.boolean() }),
+        systemPrompt: "Return data.",
+        userContent: "hello",
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });

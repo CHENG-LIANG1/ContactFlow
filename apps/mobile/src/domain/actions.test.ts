@@ -14,6 +14,7 @@ const evidence = {
 };
 
 const validResult = {
+  thinking: "看到了下周二的会议约定。",
   contextSummary: "与林澈的后续安排",
   participantNames: ["林澈"],
   proposals: [
@@ -59,6 +60,7 @@ const validResult = {
 describe("agent runtime contracts", () => {
   it("keeps a no-action analysis empty without inserting sample data", () => {
     const parsed = AnalysisResultSchema.parse({
+      thinking: "图片里没有可执行的安排。",
       contextSummary: "普通图片，没有关系行动",
       notices: [{ code: "NO_ACTION", message: "没有可执行动作" }],
       participantNames: [],
@@ -90,6 +92,7 @@ describe("agent runtime contracts", () => {
 
   it("keeps a single evidenced Latin name only once", () => {
     const parsed = AnalysisResultSchema.parse({
+      thinking: "Taylor shared contact details.",
       contextSummary: "Taylor shared contact details.",
       notices: [],
       participantNames: ["Taylor"],
@@ -216,6 +219,33 @@ describe("agent runtime contracts", () => {
             evidenceIds: ["memory-1"],
             kind: "suggestion",
             title: "准备议程",
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a suggestion with an executable email action", () => {
+    expect(
+      InsightResultSchema.safeParse({
+        insights: [
+          {
+            body: "对方已确认会议时间。",
+            evidenceIds: ["memory-1"],
+            kind: "insight",
+            title: "时间已确认",
+          },
+          {
+            body: "给 Taylor 发邮件确认时间。",
+            evidenceIds: ["memory-1"],
+            kind: "suggestion",
+            suggestedAction: {
+              type: "send_email",
+              to: "taylor@example.com",
+              subject: "确认周二会议时间",
+              body: "Hi Taylor，\n\n想和你确认一下周二下午三点的会议。",
+            },
+            title: "邮件确认",
           },
         ],
       }).success,

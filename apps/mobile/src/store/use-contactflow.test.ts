@@ -72,6 +72,7 @@ describe("chat session management", () => {
       contextSummary: "模型已经分析完成",
       notices: [{ code: "NO_ACTION", message: "没有可执行动作" }],
       participantNames: [],
+      thinking: "没有可执行动作。",
     });
 
     expect(useContactFlow.getState().chatSessions[0].analysis).toEqual({
@@ -79,6 +80,7 @@ describe("chat session management", () => {
       contextSummary: "模型已经分析完成",
       notices: [{ code: "NO_ACTION", message: "没有可执行动作" }],
       participantNames: [],
+      thinking: "没有可执行动作。",
     });
   });
 });

@@ -1,5 +1,6 @@
+import { Image } from "expo-image";
 import { UserRound } from "lucide-react-native";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ScrollView, StyleSheet, useWindowDimensions } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 
@@ -21,13 +22,15 @@ type RelationshipGraphProps = {
   language: "zh" | "en";
   onSelectRoot: () => void;
   onSelect: (id: string) => void;
-  profile: { name: string };
+  profile: { avatarUri?: string; name: string };
   selectedId?: string;
 };
 
 const GRAPH_HEIGHT = 330;
-const CHILD_SIZE = 76;
-const ROOT_SIZE = 92;
+const GRAPH_HEIGHT_COMPACT = 250;
+const CHILD_SIZE = 52;
+const ROOT_SIZE = 64;
+const ROOT_LABEL_WIDTH = 96;
 
 /** A deterministic radial map stays legible as memories change between launches. */
 export function RelationshipGraph({
@@ -39,23 +42,32 @@ export function RelationshipGraph({
   selectedId,
 }: RelationshipGraphProps) {
   const { width: viewportWidth } = useWindowDimensions();
-  const graphWidth = Math.max(viewportWidth - spacing.xl * 2, contacts.length > 4 ? 620 : 360);
-  const center = { x: graphWidth / 2, y: GRAPH_HEIGHT / 2 };
+  const [failedAvatarUri, setFailedAvatarUri] = useState<string | null>(null);
+  const graphHeight =
+    contacts.length > 2 ? GRAPH_HEIGHT : GRAPH_HEIGHT_COMPACT;
+  const graphWidth = Math.max(
+    viewportWidth - spacing.xl * 2,
+    contacts.length > 4 ? 620 : 360,
+  );
+  const center = { x: graphWidth / 2, y: graphHeight / 2 };
   const positions = useMemo(
     () =>
       contacts.map((contact, index) => {
         const startAngle = contacts.length === 2 ? 0 : -Math.PI / 2;
         const angle =
           startAngle + (index * Math.PI * 2) / Math.max(contacts.length, 1);
-        const radiusX = Math.min(graphWidth / 2 - CHILD_SIZE / 2 - spacing.md, 232);
-        const radiusY = 112;
+        const radiusX = Math.min(
+          graphWidth / 2 - CHILD_SIZE - spacing.lg,
+          232,
+        );
+        const radiusY = graphHeight / 2 - CHILD_SIZE / 2 - spacing.xl;
         return {
           contact,
           x: center.x + Math.cos(angle) * radiusX,
           y: center.y + Math.sin(angle) * radiusY,
         };
       }),
-    [center.x, center.y, contacts, graphWidth],
+    [center.x, center.y, contacts, graphHeight, graphWidth],
   );
 
   return (
@@ -65,10 +77,10 @@ export function RelationshipGraph({
         horizontal
         showsHorizontalScrollIndicator={false}
       >
-        <View style={{ height: GRAPH_HEIGHT, width: graphWidth }}>
+        <View style={{ height: graphHeight, width: graphWidth }}>
           <Svg
             accessibilityElementsHidden
-            height={GRAPH_HEIGHT}
+            height={graphHeight}
             pointerEvents="none"
             style={StyleSheet.absoluteFill}
             width={graphWidth}
@@ -78,7 +90,7 @@ export function RelationshipGraph({
               cy={center.y}
               fill="none"
               opacity={0.5}
-              r={70}
+              r={ROOT_SIZE / 2 + spacing.lg}
               stroke={palette.line}
               strokeDasharray="2 8"
               strokeWidth={1}
@@ -91,10 +103,12 @@ export function RelationshipGraph({
                   d={`M ${center.x} ${center.y} Q ${controlX} ${controlY} ${x} ${y}`}
                   fill="none"
                   key={contact.id}
-                  opacity={selectedId === contact.id ? 0.9 : 0.45}
-                  stroke={selectedId === contact.id ? palette.accent : palette.smoke}
+                  opacity={selectedId === contact.id ? 0.95 : 0.6}
+                  stroke={
+                    selectedId === contact.id ? palette.accent : palette.line
+                  }
                   strokeLinecap="round"
-                  strokeWidth={selectedId === contact.id ? 2 : 1}
+                  strokeWidth={selectedId === contact.id ? 2 : 1.2}
                 />
               );
             })}
@@ -102,9 +116,9 @@ export function RelationshipGraph({
 
           <View
             style={[
-              styles.rootNodePosition,
+              styles.nodePosition,
               {
-                left: center.x - ROOT_SIZE / 2,
+                left: center.x - ROOT_LABEL_WIDTH / 2,
                 top: center.y - ROOT_SIZE / 2,
               },
             ]}
@@ -118,12 +132,23 @@ export function RelationshipGraph({
               accessibilityLabel={`${language === "zh" ? "我" : "Me"}: ${profile.name}`}
               accessibilityRole="button"
               onPress={onSelectRoot}
-              style={styles.rootNode}
+              style={({ pressed }) => pressed && styles.pressed}
             >
-              <View style={styles.rootAvatar}>
-                <Text style={styles.rootInitial}>R</Text>
+              <View style={styles.rootNode}>
+                {profile.avatarUri && failedAvatarUri !== profile.avatarUri ? (
+                  <Image
+                    contentFit="cover"
+                    onError={() => setFailedAvatarUri(profile.avatarUri ?? null)}
+                    source={{ uri: profile.avatarUri }}
+                    style={styles.avatarImage}
+                  />
+                ) : (
+                  <Text style={styles.rootInitial}>
+                    {(profile.name || "U").slice(0, 1).toUpperCase()}
+                  </Text>
+                )}
               </View>
-              <Text numberOfLines={1} style={styles.rootLabel}>
+              <Text numberOfLines={1} style={styles.nodeLabel}>
                 {profile.name}
               </Text>
             </Pressable>
@@ -135,8 +160,8 @@ export function RelationshipGraph({
               <View
                 key={contact.id}
                 style={[
-                  styles.contactNodePosition,
-                  { left: x - CHILD_SIZE / 2, top: y - CHILD_SIZE / 2 },
+                  styles.nodePosition,
+                  { left: x - ROOT_LABEL_WIDTH / 2, top: y - CHILD_SIZE / 2 },
                 ]}
               >
                 <Pressable
@@ -148,19 +173,37 @@ export function RelationshipGraph({
                   accessibilityLabel={contact.name}
                   accessibilityRole="button"
                   onPress={() => onSelect(contact.id)}
-                  style={[
-                    styles.contactNode,
-                    selected && styles.contactNodeSelected,
-                  ]}
+                  style={({ pressed }) => pressed && styles.pressed}
                 >
-                  <View style={[styles.contactAvatar, selected && styles.contactAvatarSelected]}>
+                  <View
+                    style={[
+                      styles.contactNode,
+                      selected && styles.contactNodeSelected,
+                    ]}
+                  >
                     {contact.name ? (
-                      <Text style={styles.contactInitial}>{contact.name.slice(0, 1)}</Text>
+                      <Text
+                        style={[
+                          styles.contactInitial,
+                          selected && styles.contactInitialSelected,
+                        ]}
+                      >
+                        {contact.name.slice(0, 1)}
+                      </Text>
                     ) : (
-                      <UserRound color={palette.paper} size={iconSize.medium} />
+                      <UserRound
+                        color={palette.smoke}
+                        size={iconSize.medium}
+                      />
                     )}
                   </View>
-                <Text numberOfLines={2} style={styles.contactLabel}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.nodeLabel,
+                      selected && styles.nodeLabelSelected,
+                    ]}
+                  >
                     {contact.name}
                   </Text>
                 </Pressable>
@@ -172,7 +215,9 @@ export function RelationshipGraph({
       {contacts.length === 0 ? (
         <View pointerEvents="none" style={styles.emptyHint}>
           <Text style={styles.emptyText}>
-            {language === "zh" ? "确认联系人后，关系会从这里生长。" : "Confirm a contact to grow your relationship map."}
+            {language === "zh"
+              ? "确认联系人后，关系会从这里生长。"
+              : "Confirm a contact to grow your relationship map."}
           </Text>
         </View>
       ) : null}
@@ -182,7 +227,7 @@ export function RelationshipGraph({
 
 const styles = StyleSheet.create({
   frame: {
-    minHeight: GRAPH_HEIGHT,
+    minHeight: GRAPH_HEIGHT_COMPACT,
     overflow: "hidden",
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
@@ -190,44 +235,32 @@ const styles = StyleSheet.create({
     backgroundColor: palette.ink,
   },
   scrollContent: { minWidth: "100%" },
-  rootNodePosition: {
+  nodePosition: {
     position: "absolute",
-    width: ROOT_SIZE,
-    height: ROOT_SIZE,
+    width: ROOT_LABEL_WIDTH,
+    alignItems: "center",
   },
+  pressed: { opacity: 0.72 },
   rootNode: {
     width: ROOT_SIZE,
     height: ROOT_SIZE,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
     borderRadius: ROOT_SIZE / 2,
-    backgroundColor: palette.graphite,
-    borderWidth: 1,
-    borderColor: palette.accent,
-    shadowColor: palette.accent,
-    shadowOpacity: 0.16,
-    shadowRadius: 18,
-  },
-  rootAvatar: {
-    width: 48,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 24,
     backgroundColor: palette.accent,
+    borderWidth: 2,
+    borderColor: palette.ink,
+    shadowColor: palette.accent,
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
   },
-  rootInitial: { color: palette.void, fontFamily: fonts.display, fontSize: 20 },
-  rootLabel: {
-    maxWidth: 70,
-    color: palette.paper,
-    fontFamily: fonts.utility,
-    fontSize: typeScale.caption,
-    marginTop: spacing.xs,
-  },
-  contactNodePosition: {
-    position: "absolute",
-    width: CHILD_SIZE,
-    height: CHILD_SIZE,
+  avatarImage: { width: "100%", height: "100%" },
+  rootInitial: {
+    color: palette.void,
+    fontFamily: fonts.display,
+    fontSize: 22,
   },
   contactNode: {
     width: CHILD_SIZE,
@@ -244,25 +277,22 @@ const styles = StyleSheet.create({
     borderColor: palette.accent,
     borderWidth: 1.5,
   },
-  contactAvatar: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 17,
-    backgroundColor: palette.ink,
-  },
-  contactAvatarSelected: { backgroundColor: palette.accent },
-  contactInitial: { color: palette.paper, fontFamily: fonts.display, fontSize: 16 },
-  contactLabel: {
-    width: CHILD_SIZE - spacing.sm,
+  contactInitial: {
     color: palette.paper,
+    fontFamily: fonts.display,
+    fontSize: typeScale.subheading,
+  },
+  contactInitialSelected: { color: palette.accent },
+  nodeLabel: {
+    maxWidth: 84,
+    marginTop: spacing.sm,
+    color: palette.mist,
     fontFamily: fonts.bodyMedium,
-    fontSize: 11,
-    lineHeight: 13,
-    marginTop: spacing.xs,
+    fontSize: typeScale.caption,
+    lineHeight: 16,
     textAlign: "center",
   },
+  nodeLabelSelected: { color: palette.accent },
   emptyHint: {
     position: "absolute",
     left: spacing.xl,

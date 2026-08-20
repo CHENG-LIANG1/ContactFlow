@@ -13,6 +13,7 @@ import { Card } from "@/components/ui/card";
 import { Text } from "@/components/ui/text";
 import {
   fonts,
+  hues,
   iconSize,
   palette,
   radius,
@@ -88,7 +89,8 @@ export default function ModelsScreen() {
                     : ` · ${copy.unsupported}`
                 }`}
                 icon={Bot}
-                iconColor={palette.accent}
+                iconBackground={hues.green.background}
+                iconColor={hues.green.foreground}
                 onPress={() =>
                   router.push({
                     pathname: "/settings-model",

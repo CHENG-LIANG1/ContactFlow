@@ -117,6 +117,7 @@ export const AnalysisNoticeSchema = z.strictObject({
 export type AnalysisNotice = z.infer<typeof AnalysisNoticeSchema>;
 
 export const AnalysisResultSchema = z.strictObject({
+  thinking: z.string().trim().min(1).max(600),
   contextSummary: z.string().trim().max(500),
   participantNames: z.array(z.string().trim().min(1).max(80)).max(12),
   proposals: z.array(ModelActionDraftSchema).max(8),
@@ -127,11 +128,20 @@ export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
 export const InsightKindSchema = z.enum(["insight", "suggestion"]);
 export type InsightKind = z.infer<typeof InsightKindSchema>;
 
+export const SuggestedEmailActionSchema = z.strictObject({
+  type: z.literal("send_email"),
+  to: z.string().trim().max(160),
+  subject: z.string().trim().min(1).max(160),
+  body: z.string().trim().min(1).max(2000),
+});
+export type SuggestedEmailAction = z.infer<typeof SuggestedEmailActionSchema>;
+
 export const InsightDraftSchema = z.strictObject({
   kind: InsightKindSchema,
   title: z.string().trim().min(1).max(80),
   body: z.string().trim().min(1).max(360),
   evidenceIds: z.array(z.string().trim().min(1).max(120)).min(1).max(5),
+  suggestedAction: SuggestedEmailActionSchema.optional(),
 });
 export type InsightDraft = z.infer<typeof InsightDraftSchema>;
 
@@ -157,6 +167,8 @@ type RuntimeAction = {
   id: string;
   status: ActionStatus;
   error?: string;
+  /** System object id after a successful run (calendar event / contact). */
+  nativeObjectId?: string;
 };
 
 export type MeetingAction = Extract<

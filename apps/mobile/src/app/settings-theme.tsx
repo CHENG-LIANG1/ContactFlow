@@ -8,7 +8,7 @@ import {
   SettingsRow,
 } from "@/components/settings-list";
 import { Box as View } from "@/components/ui/box";
-import { palette } from "@/constants/theme";
+import { hues } from "@/constants/theme";
 import type { ThemeMode } from "@/domain/preferences";
 import { useContactFlow } from "@/store/use-contactflow";
 
@@ -34,7 +34,8 @@ export default function ThemeSettingsScreen() {
             <SettingsRow
               accessibilityLabel={`${copy.use} ${copy[mode]}`}
               icon={mode === "light" ? Sun : Moon}
-              iconColor={palette.accent}
+              iconBackground={hues.violet.background}
+              iconColor={hues.violet.foreground}
               onPress={() => setThemeMode(mode)}
               selected={themeMode === mode}
               showsDisclosure={false}

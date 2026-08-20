@@ -2,13 +2,12 @@ import {
   BrainCircuit,
   ChevronRight,
   MessageCircleMore,
-  Pencil,
   Pin,
   Search,
   Settings,
   SquarePen,
-  Trash2,
 } from "lucide-react-native";
+import ContextMenu from "react-native-context-menu-view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -20,15 +19,10 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
-  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import {
-  Avatar,
-  AvatarFallbackText,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { ProfileAvatar } from "@/components/profile-avatar";
 import { Box as View } from "@/components/ui/box";
 import { Pressable } from "@/components/ui/pressable";
 import { Text } from "@/components/ui/text";
@@ -82,12 +76,7 @@ export function ChatHistoryDrawer({
   const [query, setQuery] = useState("");
   const [renameTarget, setRenameTarget] = useState<ChatSession | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
-  const [menuTarget, setMenuTarget] = useState<{
-    session: ChatSession;
-    pageY: number;
-  } | null>(null);
   const closingRef = useRef(false);
-  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
   const language = useContactFlow((state) => state.language);
@@ -153,26 +142,33 @@ export function ChatHistoryDrawer({
     [copy, onDelete],
   );
 
-  const handleSessionAction = useCallback(
-    (session: ChatSession, action: string) => {
-      setMenuTarget(null);
-      if (action === "pin") {
+  const handleSessionMenuAction = useCallback(
+    (session: ChatSession, actionIndex: number) => {
+      if (actionIndex === 0) {
         onPin(session.id);
         return;
       }
-      if (action === "rename") {
+      if (actionIndex === 1) {
         beginRename(session);
         return;
       }
-      if (action === "delete") confirmDelete(session);
+      if (actionIndex === 2) confirmDelete(session);
     },
     [beginRename, confirmDelete, onPin],
   );
-  const contextMenuTop = Math.min(
-    Math.max((menuTarget?.pageY ?? 120) - 18, insets.top + spacing.sm),
-    windowHeight - insets.bottom - 220,
+
+  // Native iOS menu: system handles preview, animation, and text colors.
+  const sessionMenuActions = useCallback(
+    (session: ChatSession) => [
+      {
+        title: session.isPinned ? copy.unpin : copy.pin,
+        systemIcon: session.isPinned ? "pin.slash" : "pin",
+      },
+      { title: copy.rename, systemIcon: "pencil" },
+      { title: copy.delete, systemIcon: "trash", destructive: true },
+    ],
+    [copy],
   );
-  const contextMenuWidth = Math.min(286, windowWidth - spacing.xl * 2);
 
   useEffect(() => {
     if (!visible) return;
@@ -226,6 +222,13 @@ export function ChatHistoryDrawer({
       });
     },
     [onClose, onCloseStart, reduceMotion, scrimOpacity, translateX],
+  );
+
+  const handleSessionPress = useCallback(
+    (session: ChatSession) => {
+      closeThen(() => onSelect(session));
+    },
+    [closeThen, onSelect],
   );
 
   return (
@@ -330,58 +333,47 @@ export function ChatHistoryDrawer({
                   filteredSessions.map((session) => {
                     const active = session.id === activeSessionId;
                     return (
-                      <Pressable
-                        accessibilityActions={[
-                          { name: "manageChat", label: copy.manageChat },
-                        ]}
-                        accessibilityLabel={`${copy.openChat}: ${session.title}`}
-                        accessibilityHint={copy.longPressHint}
-                        accessibilityRole="button"
-                        delayLongPress={380}
+                      <ContextMenu
+                        actions={sessionMenuActions(session)}
+                        dropdownMenuMode={false}
                         key={session.id}
-                        onLongPress={(event) =>
-                          setMenuTarget({
+                        onPress={(event) =>
+                          handleSessionMenuAction(
                             session,
-                            pageY: event.nativeEvent.pageY,
-                          })
+                            event.nativeEvent.index,
+                          )
                         }
-                        onAccessibilityAction={(event) => {
-                          if (event.nativeEvent.actionName === "manageChat") {
-                            setMenuTarget({ session, pageY: 180 });
-                          }
-                        }}
-                        onPress={() => closeThen(() => onSelect(session))}
-                        style={({ pressed }) => pressed && styles.pressed}
                       >
-                          <View
-                            style={[
-                              styles.session,
-                              active && styles.sessionActive,
-                            ]}
-                          >
-                          <View style={styles.sessionCopy}>
-                            <Text numberOfLines={1} style={styles.sessionTitle}>
-                              {session.title}
-                            </Text>
-                            <Text numberOfLines={1} style={styles.sessionMeta}>
-                              {formatSessionTime(session.updatedAt, language)}
-                              {session.turn.attachments.length > 0
-                                ? ` · ${copy.imageCount(session.turn.attachments.length)}`
-                                : ""}
-                            </Text>
-                          </View>
-                          <View style={styles.sessionTrailing}>
-                            {session.isPinned ? (
-                              <Pin
-                                color={palette.smoke}
-                                size={iconSize.small}
-                                strokeWidth={1.7}
-                              />
-                            ) : null}
-                            {active ? <View style={styles.activeDot} /> : null}
-                          </View>
-                        </View>
-                      </Pressable>
+                        <Pressable
+                          accessibilityActions={[
+                            {
+                              name: "pin",
+                              label: session.isPinned ? copy.unpin : copy.pin,
+                            },
+                            { name: "rename", label: copy.rename },
+                            { name: "delete", label: copy.delete },
+                          ]}
+                          accessibilityLabel={`${copy.openChat}: ${session.title}`}
+                          accessibilityHint={copy.longPressHint}
+                          accessibilityRole="button"
+                          onAccessibilityAction={(event) => {
+                            const action = event.nativeEvent.actionName;
+                            handleSessionMenuAction(
+                              session,
+                              action === "pin" ? 0 : action === "rename" ? 1 : 2,
+                            );
+                          }}
+                          onPress={() => handleSessionPress(session)}
+                          style={({ pressed }) => pressed && styles.pressed}
+                        >
+                          <SessionRowContent
+                            active={active}
+                            copy={copy}
+                            language={language}
+                            session={session}
+                          />
+                        </Pressable>
+                      </ContextMenu>
                     );
                   })
                 )}
@@ -419,17 +411,13 @@ export function ChatHistoryDrawer({
                       style={({ pressed }) => pressed && styles.pressed}
                     >
                       <View style={styles.profileRow}>
-                        <Avatar
+                        <ProfileAvatar
                           className="h-9 w-9"
+                          initialStyle={styles.profileInitial}
+                          name={profile.name}
                           style={{ backgroundColor: palette.accent }}
-                        >
-                          {profile.avatarUri ? (
-                            <AvatarImage source={{ uri: profile.avatarUri }} />
-                          ) : null}
-                          <AvatarFallbackText style={styles.profileInitial}>
-                            {(profile.name || "U").slice(0, 1).toUpperCase()}
-                          </AvatarFallbackText>
-                        </Avatar>
+                          uri={profile.avatarUri}
+                        />
                         <View style={styles.profileLabel}>
                           <Text numberOfLines={1} style={styles.profileName}>
                             {profile.name || copy.profile}
@@ -454,150 +442,104 @@ export function ChatHistoryDrawer({
               </View>
             </View>
           </Animated.View>
-        </View>
-      </Modal>
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setMenuTarget(null)}
-        presentationStyle="overFullScreen"
-        statusBarTranslucent
-        transparent
-        visible={Boolean(menuTarget)}
-      >
-        <View style={styles.contextOverlay}>
-          <Pressable
-            accessibilityLabel={copy.cancel}
-            onPress={() => setMenuTarget(null)}
-            style={StyleSheet.absoluteFill}
-          />
-          {menuTarget ? (
-            <View
-              style={[
-                styles.contextMenu,
-                {
-                  top: contextMenuTop,
-                  width: contextMenuWidth,
-                },
-              ]}
-            >
-              <ContextAction
-                icon={Pin}
-                label={menuTarget.session.isPinned ? copy.unpin : copy.pin}
-                onPress={() => handleSessionAction(menuTarget.session, "pin")}
-              />
-              <View style={styles.contextDivider} />
-              <ContextAction
-                icon={Pencil}
-                label={copy.rename}
-                onPress={() =>
-                  handleSessionAction(menuTarget.session, "rename")
-                }
-              />
-              <View style={styles.contextDivider} />
-              <ContextAction
-                destructive
-                icon={Trash2}
-                label={copy.delete}
-                onPress={() =>
-                  handleSessionAction(menuTarget.session, "delete")
-                }
-              />
+          {Boolean(renameTarget) ? (
+            <View style={StyleSheet.absoluteFill}>
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : undefined}
+                style={styles.dialogOverlay}
+              >
+                <Pressable
+                  accessibilityLabel={copy.cancel}
+                  onPress={() => setRenameTarget(null)}
+                  style={StyleSheet.absoluteFill}
+                />
+                <View style={styles.renameDialog}>
+                  <Text accessibilityRole="header" style={styles.renameDialogTitle}>
+                    {copy.rename}
+                  </Text>
+                  <TextInput
+                    accessibilityLabel={copy.chatName}
+                    autoFocus
+                    enterKeyHint="done"
+                    maxLength={48}
+                    onChangeText={setRenameTitle}
+                    onSubmitEditing={saveRename}
+                    placeholder={copy.chatName}
+                    placeholderTextColor={palette.smoke}
+                    returnKeyType="done"
+                    selectionColor={palette.accent}
+                    selectTextOnFocus
+                    style={styles.renameInput}
+                    value={renameTitle}
+                  />
+                  <View style={styles.renameActions}>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => setRenameTarget(null)}
+                      style={({ pressed }) => [
+                        styles.renameButton,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={styles.renameCancel}>{copy.cancel}</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={!renameTitle.trim()}
+                      onPress={saveRename}
+                      style={({ pressed }) => [
+                        styles.renameButton,
+                        styles.renameSaveButton,
+                        !renameTitle.trim() && styles.renameButtonDisabled,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={styles.renameSave}>{copy.save}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </KeyboardAvoidingView>
             </View>
           ) : null}
         </View>
-      </Modal>
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setRenameTarget(null)}
-        presentationStyle="overFullScreen"
-        statusBarTranslucent
-        transparent
-        visible={Boolean(renameTarget)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.dialogOverlay}
-        >
-          <Pressable
-            accessibilityLabel={copy.cancel}
-            onPress={() => setRenameTarget(null)}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.renameDialog}>
-            <Text accessibilityRole="header" style={styles.renameDialogTitle}>
-              {copy.rename}
-            </Text>
-            <TextInput
-              accessibilityLabel={copy.chatName}
-              autoFocus
-              enterKeyHint="done"
-              maxLength={48}
-              onChangeText={setRenameTitle}
-              onSubmitEditing={saveRename}
-              placeholder={copy.chatName}
-              placeholderTextColor={palette.smoke}
-              returnKeyType="done"
-              selectionColor={palette.accent}
-              selectTextOnFocus
-              style={styles.renameInput}
-              value={renameTitle}
-            />
-            <View style={styles.renameActions}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setRenameTarget(null)}
-                style={({ pressed }) => [
-                  styles.renameButton,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.renameCancel}>{copy.cancel}</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={!renameTitle.trim()}
-                onPress={saveRename}
-                style={({ pressed }) => [
-                  styles.renameButton,
-                  styles.renameSaveButton,
-                  !renameTitle.trim() && styles.renameButtonDisabled,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.renameSave}>{copy.save}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
       </Modal>
     </>
   );
 }
 
-function ContextAction({
-  destructive = false,
-  icon: Icon,
-  label,
-  onPress,
+function SessionRowContent({
+  active,
+  copy,
+  language,
+  session,
 }: {
-  destructive?: boolean;
-  icon: typeof Pin;
-  label: string;
-  onPress: () => void;
+  active: boolean;
+  copy: (typeof drawerCopy)[keyof typeof drawerCopy];
+  language: "zh" | "en";
+  session: ChatSession;
 }) {
-  const color = destructive ? palette.danger : palette.paper;
   return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.contextAction,
-        pressed && styles.contextActionPressed,
-      ]}
+    <View
+      style={[styles.session, active && styles.sessionActive]}
     >
-      <Icon color={color} size={iconSize.medium} strokeWidth={1.7} />
-      <Text style={[styles.contextActionLabel, { color }]}>{label}</Text>
-    </Pressable>
+      <View style={styles.sessionCopy}>
+        <Text numberOfLines={1} style={styles.sessionTitle}>
+          {session.title}
+        </Text>
+        <Text numberOfLines={1} style={styles.sessionMeta}>
+          {formatSessionTime(session.updatedAt, language)}
+          {session.turn.attachments.length > 0
+            ? ` · ${copy.imageCount(session.turn.attachments.length)}`
+            : ""}
+        </Text>
+      </View>
+      <View style={styles.sessionTrailing}>
+        {session.isPinned ? (
+          <Pin color={palette.smoke} size={iconSize.small} strokeWidth={1.7} />
+        ) : null}
+        {active ? <View style={styles.activeDot} /> : null}
+      </View>
+    </View>
   );
 }
 
@@ -859,41 +801,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: typeScale.caption,
     marginTop: 2,
-  },
-  contextOverlay: {
-    flex: 1,
-    backgroundColor: palette.overlay,
-  },
-  contextMenu: {
-    position: "absolute",
-    left: spacing.lg,
-    overflow: "hidden",
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: palette.line,
-    backgroundColor: palette.ink,
-    shadowColor: palette.paper,
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 10 },
-  },
-  contextAction: {
-    minHeight: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-  },
-  contextActionPressed: { backgroundColor: palette.graphite },
-  contextActionLabel: {
-    fontFamily: fonts.bodyMedium,
-    fontSize: typeScale.body,
-    lineHeight: 20,
-  },
-  contextDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: palette.lineSoft,
-    marginLeft: 51,
   },
   dialogOverlay: {
     flex: 1,

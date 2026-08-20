@@ -8,6 +8,7 @@ import {
   type AnalysisResult,
   type InsightResult,
   type MemoryFact,
+  type ModelActionDraft,
 } from "@/domain/actions";
 import type { ChatAttachment } from "@/domain/chat";
 import {
@@ -38,7 +39,8 @@ export type AgentErrorCode =
   | "TIMEOUT"
   | "NETWORK"
   | "MODEL_REJECTED"
-  | "INVALID_RESPONSE";
+  | "INVALID_RESPONSE"
+  | "CANCELLED";
 
 export class AgentRequestError extends Error {
   constructor(
@@ -51,6 +53,12 @@ export class AgentRequestError extends Error {
   }
 }
 
+export type PreviousAnalysisTurn = {
+  attachments: ChatAttachment[];
+  note: string;
+  proposals: ModelActionDraft[];
+};
+
 export type AnalyzeContextInput = {
   attachments: ChatAttachment[];
   config: ModelConfig;
@@ -58,7 +66,12 @@ export type AnalyzeContextInput = {
   memories: MemoryFact[];
   note: string;
   now: Date;
+  /** Streams the model's in-progress `thinking` narrative as it is written. */
+  onThinking?: (text: string) => void;
   onProgress?: (stage: AnalysisProgressStage) => void;
+  /** Earlier turn in the same conversation, so follow-ups update in place. */
+  previous?: PreviousAnalysisTurn | null;
+  signal?: AbortSignal;
   timeZone: string;
 };
 
@@ -82,11 +95,208 @@ type StructuredRequestInput<T> = {
   jsonSchemaName: string;
   maxAttempts?: number;
   onResponse?: () => void;
+  /** Receives the model's partially-written `thinking` text while streaming. */
+  onStreamText?: (text: string) => void;
   retryDelayMs?: number;
   schema: z.ZodType<T>;
+  signal?: AbortSignal;
   systemPrompt: string;
   userContent: UserContent;
 };
+
+type StreamingFetchLike = (
+  url: string,
+  init: {
+    body: string;
+    headers: Record<string, string>;
+    method: "POST";
+    signal: AbortSignal;
+  },
+) => Promise<{
+  body: ReadableStream<Uint8Array> | null;
+  ok: boolean;
+  status: number;
+  text(): Promise<string>;
+}>;
+
+let cachedExpoFetch: StreamingFetchLike | null = null;
+
+/** expo/fetch exposes a real streaming body; loaded lazily so tests stay native-free. */
+function streamingFetch(): StreamingFetchLike {
+  if (!cachedExpoFetch) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    cachedExpoFetch = require("expo/fetch").fetch as StreamingFetchLike;
+  }
+  return cachedExpoFetch;
+}
+
+/** Reads the in-progress string value of `"thinking"` from a partial JSON payload. */
+export function extractPartialThinking(json: string) {
+  const keyIndex = json.indexOf('"thinking"');
+  if (keyIndex < 0) return "";
+  const quoteIndex = json.indexOf('"', json.indexOf(":", keyIndex));
+  if (quoteIndex < 0) return "";
+  let raw = json.slice(quoteIndex + 1);
+  // If the value already closed, cut everything after its closing quote.
+  for (let index = 0; index < raw.length; index += 1) {
+    if (raw[index] !== '"') continue;
+    let backslashes = 0;
+    for (let cursor = index - 1; raw[cursor] === "\\"; cursor -= 1) {
+      backslashes += 1;
+    }
+    if (backslashes % 2 === 0) {
+      raw = raw.slice(0, index);
+      break;
+    }
+  }
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      return JSON.parse(`"${raw}"`) as string;
+    } catch {
+      raw = raw.slice(0, -1);
+      if (!raw) return "";
+    }
+  }
+  return "";
+}
+
+async function readStreamingBody(
+  response: { body: ReadableStream<Uint8Array> | null },
+  onText: (accumulated: string) => void,
+) {
+  if (!response.body) {
+    throw new AgentRequestError(
+      "INVALID_RESPONSE",
+      "The model response did not stream a body.",
+    );
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let accumulated = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const event of events) {
+      const data = event
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .join("");
+      if (!data || data === "[DONE]") continue;
+      try {
+        const chunk = JSON.parse(data) as {
+          choices?: { delta?: { content?: string } }[];
+        };
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) {
+          accumulated += delta;
+          onText(accumulated);
+        }
+      } catch {
+        // Ignore keep-alive or partial frames.
+      }
+    }
+  }
+  return accumulated;
+}
+
+/** Single streaming attempt; callers fall back to the classic request on failure. */
+async function streamStructuredOutput<T>({
+  apiKey,
+  body,
+  config,
+  onStreamText,
+  schema,
+  signal,
+  fetchImpl,
+}: {
+  apiKey: string;
+  body: string;
+  config: ModelConfig;
+  fetchImpl?: StreamingFetchLike;
+  onStreamText: (text: string) => void;
+  schema: z.ZodType<T>;
+  signal?: AbortSignal;
+}): Promise<T> {
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort();
+  signal?.addEventListener("abort", forwardAbort);
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await (fetchImpl ?? streamingFetch())(
+      endpointFor(config.baseUrl),
+      {
+        body,
+        headers: {
+          Authorization: `Bearer ${apiKey.trim()}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) {
+      const errorText = await response.text();
+      let providerMessage: string | undefined;
+      try {
+        providerMessage = (
+          JSON.parse(errorText) as { error?: { message?: string } }
+        ).error?.message;
+      } catch {
+        providerMessage = undefined;
+      }
+      throw errorForStatus(response.status, providerMessage);
+    }
+    let lastThinking = "";
+    const content = await readStreamingBody(response, (accumulated) => {
+      const thinking = extractPartialThinking(accumulated);
+      if (thinking && thinking !== lastThinking) {
+        lastThinking = thinking;
+        onStreamText(thinking);
+      }
+    });
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      throw new AgentRequestError(
+        "INVALID_RESPONSE",
+        "The model output was not valid JSON.",
+      );
+    }
+    const result = schema.safeParse(parsed);
+    if (!result.success) {
+      throw new AgentRequestError(
+        "INVALID_RESPONSE",
+        "The model output did not match the ContactFlow schema.",
+      );
+    }
+    return result.data;
+  } catch (error) {
+    if (error instanceof AgentRequestError) throw error;
+    const aborted =
+      error instanceof Error &&
+      (error.name === "AbortError" || controller.signal.aborted);
+    if (aborted) {
+      if (signal?.aborted) {
+        throw new AgentRequestError("CANCELLED", "The request was stopped.");
+      }
+      throw new AgentRequestError("TIMEOUT", "The model request timed out.");
+    }
+    throw new AgentRequestError(
+      "NETWORK",
+      "Could not reach the model service.",
+    );
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
 
 function endpointFor(baseUrl: string) {
   const normalized = baseUrl.trim().replace(/\/+$/, "");
@@ -141,8 +351,10 @@ export async function requestStructuredOutput<T>({
   jsonSchemaName,
   maxAttempts = 2,
   onResponse,
+  onStreamText,
   retryDelayMs = 400,
   schema,
+  signal,
   systemPrompt,
   userContent,
 }: StructuredRequestInput<T>): Promise<T> {
@@ -186,8 +398,39 @@ export async function requestStructuredOutput<T>({
     );
   }
 
+  if (onStreamText) {
+    try {
+      const streamed = await streamStructuredOutput({
+        apiKey,
+        body: JSON.stringify({ ...body, stream: true }),
+        config,
+        fetchImpl: fetchImpl === fetch
+          ? undefined
+          : (fetchImpl as unknown as StreamingFetchLike),
+        onStreamText,
+        schema,
+        signal,
+      });
+      onResponse?.();
+      return streamed;
+    } catch (error) {
+      if (
+        error instanceof AgentRequestError &&
+        (error.code === "CANCELLED" || error.code === "TIMEOUT")
+      ) {
+        throw error;
+      }
+      // Streaming is best-effort: fall back to the classic request below.
+    }
+  }
+
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (signal?.aborted) {
+      throw new AgentRequestError("CANCELLED", "The request was stopped.");
+    }
     const controller = new AbortController();
+    const forwardAbort = () => controller.abort();
+    signal?.addEventListener("abort", forwardAbort);
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const response = await fetchImpl(endpointFor(config.baseUrl), {
@@ -276,6 +519,9 @@ export async function requestStructuredOutput<T>({
         error instanceof Error &&
         (error.name === "AbortError" || controller.signal.aborted);
       if (aborted) {
+        if (signal?.aborted) {
+          throw new AgentRequestError("CANCELLED", "The request was stopped.");
+        }
         throw new AgentRequestError(
           "TIMEOUT",
           "The model request timed out.",
@@ -291,6 +537,7 @@ export async function requestStructuredOutput<T>({
       );
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", forwardAbort);
     }
   }
 
@@ -339,6 +586,13 @@ function analysisPrompt(input: AnalyzeContextInput) {
     source: fact.source,
     value: fact.value,
   }));
+  const previous = input.previous;
+  const previousBlock = previous
+    ? `
+This note is a follow-up in an ongoing conversation. Previous user note: ${JSON.stringify(previous.note)}
+Previous proposals you returned (JSON): ${JSON.stringify(previous.proposals)}
+If the new note modifies an earlier proposal (for example changing a time, name, or detail), return that proposal fully updated in place of the old one — never create a duplicate proposal for the same intent. Remove proposals the user explicitly cancels. Only create new proposals for genuinely new intents. Previous images keep their image:<1-based index> numbering and come before any new images.`
+    : "";
   return `You are ContactFlow, a conservative relationship-action extractor.
 Return only the provided JSON schema. Analyze the current note and every image.
 Never invent people, phone numbers, companies, job titles, dates, or actions.
@@ -346,8 +600,9 @@ If a required fact is unclear, omit that proposal and add a notice.
 Use absolute ISO-8601 date-times. The current time is ${input.now.toISOString()}, timezone ${input.timeZone}, locale ${input.locale}.
 Meeting duration may default to 30 minutes only when the start is explicit; cite source system_default.
 Image evidence sourceId is image:<1-based index>; note evidence sourceId is user_note.
+Fill the "thinking" field first: 1-4 short sentences in locale ${input.locale} narrating what you see and decide as you analyze — concrete observations only, no boilerplate, no JSON terminology.
 The following are previously confirmed local memories. Use one only when the current input clearly identifies the same person; cite its exact id as confirmed_memory. Ignore unrelated memories:
-${JSON.stringify(memory)}`;
+${JSON.stringify(memory)}${previousBlock}`;
 }
 
 export async function analyzeContext(
@@ -355,14 +610,25 @@ export async function analyzeContext(
 ): Promise<AnalysisResult> {
   input.onProgress?.("preparing_input");
   const apiKey = await readModelApiKey(input.config.id);
-  const userContent = await buildVisionContent(input.note, input.attachments);
+  const previousAttachments = (input.previous?.attachments ?? []).filter(
+    (attachment) => attachment.uri,
+  );
+  const userContent = await buildVisionContent(input.note, [
+    ...previousAttachments,
+    ...input.attachments,
+  ]);
+  if (input.signal?.aborted) {
+    throw new AgentRequestError("CANCELLED", "The request was stopped.");
+  }
   input.onProgress?.("requesting_model");
   return requestStructuredOutput({
     apiKey: apiKey ?? "",
     config: input.config,
     jsonSchemaName: "contactflow_analysis",
     onResponse: () => input.onProgress?.("validating_schema"),
+    onStreamText: input.onThinking,
     schema: AnalysisResultSchema,
+    signal: input.signal,
     systemPrompt: analysisPrompt(input),
     userContent,
   });
@@ -390,6 +656,7 @@ Return only the provided JSON schema in locale ${input.locale}.
 Use only the supplied context, final action, and confirmed memories.
 Return at least one item with kind "insight" explaining a useful relationship signal or change, and at least one item with kind "suggestion" proposing a concrete, user-controlled next step.
 Suggestions may recommend an action but must never claim it already happened or trigger a tool.
+If a suggestion is to email someone, include suggestedAction: { type: "send_email", to, subject, body } — "to" must be an email address that appears verbatim in the supplied context (leave it empty when none exists), and "body" must be a complete, ready-to-send email draft in locale ${input.locale} that references the confirmed facts. Never include suggestedAction for non-email suggestions.
 Every evidenceIds item must exactly equal one of these allowed ids: ${JSON.stringify(allowedEvidenceIdList)}.
 Do not cite any other id. Do not invent facts, generic advice, or unsupported conclusions.`,
     userContent: JSON.stringify({
@@ -461,6 +728,7 @@ export function agentErrorMessage(error: unknown, locale: string) {
       "模型返回结果未通过 ContactFlow Schema 校验，没有生成任何动作。",
       "The model response failed ContactFlow schema validation. No action was created.",
     ],
+    CANCELLED: ["已停止分析。", "Analysis stopped."],
   };
   return messages[code][isZh ? 0 : 1];
 }

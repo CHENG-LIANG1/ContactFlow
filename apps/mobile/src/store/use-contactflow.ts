@@ -177,7 +177,11 @@ export const useContactFlow = create<ContactFlowState>()(
           return {
             actions: state.actions.map((candidate) =>
               candidate.id === id
-                ? { ...candidate, status: "succeeded" }
+                ? {
+                    ...candidate,
+                    status: "succeeded",
+                    nativeObjectId: receipt.nativeObjectId,
+                  }
                 : candidate,
             ),
             history: [
@@ -218,6 +222,7 @@ export const useContactFlow = create<ContactFlowState>()(
               ? {
                   ...session,
                   analysis,
+                  analysisError: undefined,
                   ...(durationMs !== undefined
                     ? { analysisDurationMs: durationMs }
                     : {}),
