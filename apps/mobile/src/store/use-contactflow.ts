@@ -16,6 +16,7 @@ import {
 } from "@/domain/actions";
 import type { ChatSession } from "@/domain/chat";
 import {
+  isChatCompletionsProvider,
   resolveModelConfig,
   type ModelConfig,
   type ModelConfigInput,
@@ -26,7 +27,11 @@ import type {
   ThemeMode,
   UserProfile,
 } from "@/domain/preferences";
+import type { RelationshipContact } from "@/domain/relationship-memory";
+import type { RelationshipSummary } from "@/domain/relationship-summary";
 import { deleteModelApiKey, saveModelApiKey } from "@/services/model-secrets";
+import { agentErrorMessage } from "@/services/openai-compatible-agent";
+import { generateRelationshipSummary } from "@/services/relationship-summary-agent";
 
 type ContactFlowState = {
   actions: ActionProposal[];
@@ -36,6 +41,10 @@ type ContactFlowState = {
   chatSessions: ChatSession[];
   modelConfigs: ModelConfig[];
   selectedModelConfigId: string | null;
+  relationshipSummaries: Record<string, RelationshipSummary>;
+  summaryModelConfigId: string | null;
+  summaryRunningIds: string[];
+  summaryErrors: Record<string, string>;
   permissionMode: AgentPermissionMode;
   language: AppLanguage;
   themeMode: ThemeMode;
@@ -60,6 +69,9 @@ type ContactFlowState = {
   updateModelConfig: (id: string, input: ModelConfigInput) => Promise<void>;
   deleteModelConfig: (id: string) => Promise<void>;
   selectModelConfig: (id: string) => void;
+  selectSummaryModelConfig: (id: string) => void;
+  startRelationshipSummary: (contact: RelationshipContact) => Promise<void>;
+  markRelationshipSummaryViewed: (contactId: string) => void;
   setPermissionMode: (permissionMode: AgentPermissionMode) => void;
   setLanguage: (language: AppLanguage) => void;
   setThemeMode: (themeMode: ThemeMode) => void;
@@ -125,6 +137,10 @@ export const useContactFlow = create<ContactFlowState>()(
       chatSessions: [],
       modelConfigs: [],
       selectedModelConfigId: null,
+      relationshipSummaries: {},
+      summaryModelConfigId: null,
+      summaryRunningIds: [],
+      summaryErrors: {},
       permissionMode: "ask",
       language: "zh",
       themeMode: "light",
@@ -265,6 +281,11 @@ export const useContactFlow = create<ContactFlowState>()(
             memories: state.memories.filter(
               (memory) => !belongsToContact(memory.contactName),
             ),
+            relationshipSummaries: Object.fromEntries(
+              Object.entries(state.relationshipSummaries).filter(
+                ([, summary]) => !belongsToContact(summary.contactName),
+              ),
+            ),
           };
         }),
       createModelConfig: async (input) => {
@@ -331,6 +352,86 @@ export const useContactFlow = create<ContactFlowState>()(
             state.modelConfigs[0]?.id ??
             null,
         })),
+      selectSummaryModelConfig: (id) =>
+        set((state) => ({
+          summaryModelConfigId:
+            state.modelConfigs.find((config) => config.id === id)?.id ??
+            state.modelConfigs[0]?.id ??
+            null,
+        })),
+      markRelationshipSummaryViewed: (contactId) =>
+        set((state) => {
+          const summary = state.relationshipSummaries[contactId];
+          if (!summary || summary.viewed) return {};
+          return {
+            relationshipSummaries: {
+              ...state.relationshipSummaries,
+              [contactId]: { ...summary, viewed: true },
+            },
+          };
+        }),
+      startRelationshipSummary: async (contact) => {
+        const current = get();
+        if (current.summaryRunningIds.includes(contact.id)) return;
+        const config = resolveModelConfig(
+          current.modelConfigs,
+          current.summaryModelConfigId,
+        );
+        if (!config || !isChatCompletionsProvider(config.provider)) {
+          set((state) => ({
+            summaryErrors: {
+              ...state.summaryErrors,
+              [contact.id]:
+                state.language === "zh"
+                  ? "还没有可用模型，请先在模型设置中配置。"
+                  : "No model available yet. Configure one in model settings.",
+            },
+          }));
+          return;
+        }
+        set((state) => ({
+          summaryRunningIds: [...state.summaryRunningIds, contact.id],
+          summaryErrors: Object.fromEntries(
+            Object.entries(state.summaryErrors).filter(
+              ([id]) => id !== contact.id,
+            ),
+          ),
+        }));
+        try {
+          const result = await generateRelationshipSummary({
+            config,
+            contact,
+            locale: get().language === "zh" ? "zh-CN" : "en-US",
+            profile: get().profile,
+          });
+          set((state) => ({
+            relationshipSummaries: {
+              ...state.relationshipSummaries,
+              [contact.id]: {
+                contactId: contact.id,
+                contactName: contact.name,
+                content: result.summary,
+                generatedAt: new Date().toISOString(),
+                modelName: config.model,
+                viewed: false,
+              },
+            },
+          }));
+        } catch (error) {
+          set((state) => ({
+            summaryErrors: {
+              ...state.summaryErrors,
+              [contact.id]: agentErrorMessage(error, state.language),
+            },
+          }));
+        } finally {
+          set((state) => ({
+            summaryRunningIds: state.summaryRunningIds.filter(
+              (id) => id !== contact.id,
+            ),
+          }));
+        }
+      },
       setPermissionMode: (permissionMode) => set({ permissionMode }),
       setLanguage: (language) => set({ language }),
       setThemeMode: (themeMode) => set({ themeMode }),
@@ -345,6 +446,9 @@ export const useContactFlow = create<ContactFlowState>()(
           memories: [],
           insights: [],
           chatSessions: [],
+          relationshipSummaries: {},
+          summaryErrors: {},
+          summaryRunningIds: [],
         }),
     }),
     {
@@ -378,6 +482,14 @@ export const useContactFlow = create<ContactFlowState>()(
           ),
           chatSessions,
           modelConfigs: restored.modelConfigs ?? currentState.modelConfigs,
+          relationshipSummaries:
+            restored.relationshipSummaries ??
+            currentState.relationshipSummaries,
+          summaryModelConfigId: (
+            restored.modelConfigs ?? currentState.modelConfigs
+          ).some((config) => config.id === restored.summaryModelConfigId)
+            ? (restored.summaryModelConfigId as string)
+            : null,
           selectedModelConfigId:
             resolveModelConfig(
               restored.modelConfigs ?? currentState.modelConfigs,
@@ -406,6 +518,8 @@ export const useContactFlow = create<ContactFlowState>()(
         chatSessions: state.chatSessions,
         modelConfigs: state.modelConfigs,
         selectedModelConfigId: state.selectedModelConfigId,
+        relationshipSummaries: state.relationshipSummaries,
+        summaryModelConfigId: state.summaryModelConfigId,
         permissionMode: state.permissionMode,
         language: state.language,
         themeMode: state.themeMode,

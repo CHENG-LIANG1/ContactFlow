@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { StyleSheet } from "react-native";
 
 import { RelationshipGraph } from "@/components/relationship-graph";
+import { RelationshipSummarySection } from "@/components/relationship-summary";
 import {
   ProfileEditorModal,
   ProfileSummaryCard,
@@ -113,6 +114,14 @@ export default function MemoryScreen() {
             ) : null}
           </Card>
         </View>
+      ) : null}
+
+      {selectedContact ? (
+        <RelationshipSummarySection
+          contact={selectedContact}
+          key={selectedContact.id}
+          language={language}
+        />
       ) : null}
 
       {selectedContact ? (
@@ -349,7 +358,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   contactCard: {
-    padding: spacing.lg,
+    gap: 0,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: palette.lineSoft,
@@ -359,7 +370,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing.md,
-    paddingBottom: spacing.lg,
+    paddingBottom: spacing.md,
   },
   contactIdentity: { flex: 1, minWidth: 0 },
   contactName: {
@@ -383,7 +394,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   fieldRow: {
-    minHeight: 48,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,

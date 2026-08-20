@@ -3,7 +3,9 @@ import * as SecureStore from "expo-secure-store";
 
 import type { ChatSession } from "@/domain/chat";
 import type { ActionProposal } from "@/domain/actions";
+import type { RelationshipContact } from "@/domain/relationship-memory";
 import { useContactFlow } from "@/store/use-contactflow";
+import { generateRelationshipSummary } from "@/services/relationship-summary-agent";
 
 vi.mock("@react-native-async-storage/async-storage", () => ({
   default: {
@@ -17,6 +19,17 @@ vi.mock("expo-secure-store", () => ({
   setItemAsync: vi.fn(async () => undefined),
   getItemAsync: vi.fn(async () => null),
   deleteItemAsync: vi.fn(async () => undefined),
+}));
+
+vi.mock("@/services/relationship-summary-agent", () => ({
+  generateRelationshipSummary: vi.fn(),
+}));
+
+vi.mock("@/services/openai-compatible-agent", () => ({
+  agentErrorMessage: vi.fn(
+    (error: unknown) =>
+      `agent-error:${error instanceof Error ? error.message : "unknown"}`,
+  ),
 }));
 
 function session(id: string, title: string): ChatSession {
@@ -257,5 +270,147 @@ describe("agent permission preference", () => {
     useContactFlow.getState().setPermissionMode("full");
 
     expect(useContactFlow.getState().permissionMode).toBe("full");
+  });
+});
+
+describe("relationship summary", () => {
+  const contact: RelationshipContact = {
+    company: "Northstar",
+    email: "taylor@northstar.ai",
+    facts: [],
+    id: "relationship-taylor",
+    lastActivityAt: "2026-08-19T01:00:00.000Z",
+    meetings: [],
+    name: "Taylor",
+    phone: "13876543210",
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    useContactFlow.setState({
+      modelConfigs: [],
+      relationshipSummaries: {},
+      selectedModelConfigId: null,
+      summaryErrors: {},
+      summaryModelConfigId: null,
+      summaryRunningIds: [],
+    });
+  });
+
+  it("stores an unviewed summary and clears the running flag", async () => {
+    await useContactFlow.getState().createModelConfig({
+      apiKey: "key",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-test",
+      provider: "openai",
+    });
+    vi.mocked(generateRelationshipSummary).mockResolvedValue({
+      summary: "与 Taylor 的互动稳定。",
+    });
+
+    await useContactFlow.getState().startRelationshipSummary(contact);
+
+    const state = useContactFlow.getState();
+    expect(state.summaryRunningIds).toEqual([]);
+    expect(state.relationshipSummaries["relationship-taylor"]).toMatchObject({
+      contactName: "Taylor",
+      content: "与 Taylor 的互动稳定。",
+      modelName: "gpt-test",
+      viewed: false,
+    });
+  });
+
+  it("marks a summary viewed so the modal does not reopen", async () => {
+    await useContactFlow.getState().createModelConfig({
+      apiKey: "key",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-test",
+      provider: "openai",
+    });
+    vi.mocked(generateRelationshipSummary).mockResolvedValue({ summary: "ok" });
+    await useContactFlow.getState().startRelationshipSummary(contact);
+
+    useContactFlow
+      .getState()
+      .markRelationshipSummaryViewed("relationship-taylor");
+
+    expect(
+      useContactFlow.getState().relationshipSummaries["relationship-taylor"]
+        ?.viewed,
+    ).toBe(true);
+  });
+
+  it("writes a localized error when no model is configured", async () => {
+    await useContactFlow.getState().startRelationshipSummary(contact);
+
+    expect(
+      useContactFlow.getState().summaryErrors["relationship-taylor"],
+    ).toBe("还没有可用模型，请先在模型设置中配置。");
+    expect(generateRelationshipSummary).not.toHaveBeenCalled();
+    expect(useContactFlow.getState().summaryRunningIds).toEqual([]);
+  });
+
+  it("stores agent errors and stays retryable", async () => {
+    await useContactFlow.getState().createModelConfig({
+      apiKey: "key",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-test",
+      provider: "openai",
+    });
+    vi.mocked(generateRelationshipSummary).mockRejectedValue(
+      new Error("boom"),
+    );
+
+    await useContactFlow.getState().startRelationshipSummary(contact);
+
+    const state = useContactFlow.getState();
+    expect(state.summaryErrors["relationship-taylor"]).toContain(
+      "agent-error",
+    );
+    expect(state.summaryRunningIds).toEqual([]);
+  });
+
+  it("clears summaries with contact memory and local data", () => {
+    const summary = {
+      contactId: "relationship-taylor",
+      contactName: "Taylor",
+      content: "old",
+      generatedAt: "2026-08-19T01:00:00.000Z",
+      modelName: "gpt-test",
+      viewed: true,
+    };
+    useContactFlow.setState({
+      relationshipSummaries: { "relationship-taylor": summary },
+    });
+
+    useContactFlow.getState().deleteContactMemory("Taylor");
+    expect(useContactFlow.getState().relationshipSummaries).toEqual({});
+
+    useContactFlow.setState({
+      relationshipSummaries: { "relationship-taylor": summary },
+    });
+    useContactFlow.getState().clearLocalData();
+    expect(useContactFlow.getState().relationshipSummaries).toEqual({});
+  });
+
+  it("keeps the summary model selection independent from the chat model", async () => {
+    const firstId = await useContactFlow.getState().createModelConfig({
+      apiKey: "key",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-a",
+      provider: "openai",
+    });
+    const secondId = await useContactFlow.getState().createModelConfig({
+      apiKey: "key",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      provider: "deepseek",
+    });
+
+    useContactFlow.getState().selectModelConfig(secondId);
+    useContactFlow.getState().selectSummaryModelConfig(firstId);
+
+    expect(useContactFlow.getState().selectedModelConfigId).toBe(secondId);
+    expect(useContactFlow.getState().summaryModelConfigId).toBe(firstId);
   });
 });
