@@ -10,3 +10,4 @@ apps/mobile/ios/Pods/
 apps/mobile/ios/.xcode.env.local
 apps/mobile/android/
 artifacts/
+.qoder/
