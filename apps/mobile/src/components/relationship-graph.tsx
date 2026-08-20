@@ -96,11 +96,22 @@ export function RelationshipGraph({
               strokeWidth={1}
             />
             {positions.map(({ contact, x, y }) => {
-              const controlX = center.x + (x - center.x) * 0.54;
-              const controlY = center.y + (y - center.y) * 0.28;
+              const dx = x - center.x;
+              const dy = y - center.y;
+              const distance = Math.hypot(dx, dy) || 1;
+              const ux = dx / distance;
+              const uy = dy / distance;
+              // Trim both ends so the edge stops at the node circles instead
+              // of bleeding through the translucent selected node fill.
+              const startX = center.x + ux * (ROOT_SIZE / 2 + 2);
+              const startY = center.y + uy * (ROOT_SIZE / 2 + 2);
+              const endX = x - ux * (CHILD_SIZE / 2 + 2);
+              const endY = y - uy * (CHILD_SIZE / 2 + 2);
+              const controlX = center.x + dx * 0.54;
+              const controlY = center.y + dy * 0.28;
               return (
                 <Path
-                  d={`M ${center.x} ${center.y} Q ${controlX} ${controlY} ${x} ${y}`}
+                  d={`M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`}
                   fill="none"
                   key={contact.id}
                   opacity={selectedId === contact.id ? 0.95 : 0.6}
